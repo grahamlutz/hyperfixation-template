@@ -16,6 +16,9 @@ const nextConfig: NextConfig = {
     "@hyperfixation/db",
     "@hyperfixation/workflows",
     "drizzle-orm",
+    // Reaches Node's own `net`/`tls` and builds its transport from a URL the environment
+    // supplies; nothing about it is resolvable at build time.
+    "nodemailer",
     "pg",
   ],
 };

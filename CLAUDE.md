@@ -31,10 +31,11 @@ every commit. If a change makes it red, the change is wrong far more often than 
 | `src/flows/` | Flows. `pnpm gen` scaffolds one and registers it |
 | `src/db/schema/` | This app's own tables. Never an `hf_*` table |
 | `src/env.ts` | `REQUIRED_ENV`, the env contract both compose files are held to |
+| `src/auth.ts` | better-auth and `requireSession()` — this app's one session boundary |
 | `drizzle/` | This app's migrations. `pnpm db:generate` after a schema edit |
 | `prompts/` | Prompt files, addressed by content hash |
 | `fixtures/` | One per flow, named for the flow. The contract suite needs it |
-| `app/` | Two catch-all routes and `/api/status`. Almost nothing per-app |
+| `app/` | The two catch-all routes, `/auth/*`, and the two API mounts. Almost nothing per-app |
 | `worker.ts` / `migrate.ts` | The worker and the one-shot migrator |
 
 ## Working here

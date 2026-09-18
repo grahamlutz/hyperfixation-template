@@ -6,8 +6,9 @@
   "engines": {
     "node": ">=22"
   },
+  "//dev": "TEMPORARY, and paired with pnpm-workspace.yaml — delete `--webpack` at the first @hyperfixation/* publish. Next 16's dev is Turbopack, which cannot resolve a `link:`-ed package outside the project root; the overrides that link the sibling core checkout are what produce that shape, and deleting them closes this too.",
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "build": "next build",
     "start": "node .next/standalone/server.js",
     "worker": "node --import tsx worker.ts",
@@ -15,10 +16,12 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:e2e": "vitest run -c vitest.e2e.config.ts",
     "db:generate": "drizzle-kit generate",
     "gen": "turbo gen"
   },
   "dependencies": {
+    "@better-auth/passkey": "1.7.5",
     "@dbos-inc/dbos-sdk": "4.27.6",
     "@hyperfixation/admin": "^0.0.0",
     "@hyperfixation/ai": "^0.0.0",
@@ -26,8 +29,10 @@
     "@hyperfixation/core": "^0.0.0",
     "@hyperfixation/db": "^0.0.0",
     "@hyperfixation/workflows": "^0.0.0",
+    "better-auth": "1.7.5",
     "drizzle-orm": "^0.45.2",
     "next": "^16.3.5",
+    "nodemailer": "^7.0.0",
     "pg": "^8.23.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
@@ -38,11 +43,13 @@
     "@hyperfixation/testing": "^0.0.0",
     "@turbo/gen": "^2.10.13",
     "@types/node": "^22.0.0",
+    "@types/nodemailer": "^7.0.0",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "drizzle-kit": "^0.31.10",
     "eslint": "^10.10.0",
+    "playwright": "^1.63.0",
     "turbo": "^2.1.0",
     "typescript": "^5.6.0",
     "vitest": "^3.0.0",
