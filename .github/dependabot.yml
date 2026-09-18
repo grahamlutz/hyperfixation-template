@@ -1,0 +1,28 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # One PR, not twenty. The app's contract suite is what reviews a dependency bump, and
+      # running it twenty times for twenty single-package PRs buys nothing.
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # `core-bump.yml` moves these, all together. Dependabot bumping one of eight would
+      # produce exactly the mixed version set the lockstep release exists to prevent.
+      - dependency-name: "@hyperfixation/*"
+      # Pinned to one exact version across every package so `DBOS` is one object in a process.
+      - dependency-name: "@dbos-inc/dbos-sdk"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: monthly

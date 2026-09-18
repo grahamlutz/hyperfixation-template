@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # `@hyperfixation/testing` creates a database per test on this cluster and drops it after.
+      HF_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      # `flow-restart.test.ts` spawns a real worker, and `startWorker()` refuses a version
+      # shorter than 7 characters. The harness overrides this per worker; this covers the
+      # in-process half.
+      HF_BUILD_SHA: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      # The contract suite. `flow-restart.test.ts` runs every registered flow through a restart
+      # under the worker's fence rule, which is what gates a core bump on this app's own shape.
+      - run: pnpm test
+      - run: pnpm build
+
+  # The deploy shape is checked by `compose-envs.test.ts` above, which reads the file; this
+  # asserts Docker itself can resolve it — interpolation, the `x-app` anchor, the build args.
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f docker-compose.prod.yml config --quiet
+        env:
+          DATABASE_URL: postgres://unused
+          MIGRATOR_DATABASE_URL: postgres://unused
+          APP_URL: https://unused
+          BETTER_AUTH_SECRET: unused
+          SMTP_URL: smtp://unused
+          EMAIL_FROM: unused@example.com
+          SENTRY_DSN: ""
+          LANGFUSE_BASE_URL: ""
+          LANGFUSE_PUBLIC_KEY: ""
+          LANGFUSE_SECRET_KEY: ""
+          ANTHROPIC_API_KEY: ""
+          OPENAI_API_KEY: ""

@@ -1,0 +1,66 @@
+name: Core bump
+
+# Every `@hyperfixation/*` package is released in lockstep, so an app upgrades all of them or
+# none of them: a mixed set is a combination nothing was tested against. `hyperfixation-bot`
+# dispatches this on release; the manual input is for pinning to an older version deliberately.
+on:
+  repository_dispatch:
+    types: [hyperfixation-core-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The @hyperfixation/* version to move to
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - id: version
+        run: |
+          VERSION="${{ inputs.version || github.event.client_payload.version }}"
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Move every @hyperfixation/* package together
+        run: |
+          set -eu
+          PACKAGES=$(node -e '
+            const pkg = require("./package.json");
+            const all = { ...pkg.dependencies, ...pkg.devDependencies };
+            console.log(Object.keys(all).filter((n) => n.startsWith("@hyperfixation/")).join(" "));
+          ')
+          test -n "$PACKAGES"
+          pnpm update --latest $PACKAGES
+
+      # The PR is opened whether or not this passes; a bump that breaks the app's contract
+      # suite is exactly the thing the PR exists to show, and a silent failure here would
+      # hide it. `ci.yml` is what actually gates the merge.
+      - run: pnpm install --frozen-lockfile=false && pnpm test
+        continue-on-error: true
+
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: core-bump/${{ steps.version.outputs.version }}
+          commit-message: "Move @hyperfixation/* to ${{ steps.version.outputs.version }}"
+          title: "Move @hyperfixation/* to ${{ steps.version.outputs.version }}"
+          body: |
+            Every `@hyperfixation/*` package moved together to
+            `${{ steps.version.outputs.version }}`.
+
+            This app's own contract suite — `flow-restart.test.ts` included — gates the merge.
+            A red CI here means the release changed something this app's flows depend on; read
+            the failure before overriding it.
