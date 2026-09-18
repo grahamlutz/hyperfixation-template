@@ -1,0 +1,31 @@
+import { defineFlow, step } from "@hyperfixation/workflows";
+import { sql } from "drizzle-orm";
+
+export interface {{pascalCase name}}Input {
+  // TODO: what this flow is started with. `fixtures/{{name}}.json` has to match it.
+  id: string;
+}
+
+/**
+ * TODO: what this flow does.
+ *
+ * Two rules the contract suite enforces rather than trusts. Every step takes a `key`, because
+ * the key is what the ledger and the action log are keyed by across a restart. And every write
+ * goes through `ctx.tx` — the step pool refuses an unfenced write whatever issued it, so a
+ * handle reached any other way fails `flow-restart.test.ts` before it reaches production.
+ */
+export const {{name}}Flow = defineFlow<{{pascalCase name}}Input, void>(
+  "{{name}}",
+  async (input) => {
+    await step(
+      "todo",
+      async (ctx) => {
+        await ctx.tx(async (db) => {
+          await db.execute(sql`SELECT ${input.id}`);
+        });
+      },
+      { key: "todo" },
+    );
+  },
+  { queue: "{{queue}}" },
+);

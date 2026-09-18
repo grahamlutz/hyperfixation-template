@@ -1,0 +1,19 @@
+import { bigint, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+
+/**
+ * A record table. The three shape rules are boot checks, not conventions: a `bigint` identity
+ * primary key named `id` (E001), a trigram index on `normalized_name` (E003), and no foreign
+ * key to any `hf_*` table (E004). A worker that finds any of them broken refuses to launch.
+ *
+ * Run `pnpm db:generate` after editing this, and never let an app migration touch an `hf_*`
+ * table — that is E005, and it fails the migrator before it fails the worker.
+ */
+export const {{name}} = pgTable(
+  "{{snakeCase name}}",
+  {
+    id: bigint("id", { mode: "bigint" }).primaryKey().generatedAlwaysAsIdentity(),
+    normalizedName: text("normalized_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (t) => [index("{{snakeCase name}}_normalized_name_trgm").using("gin", t.normalizedName)],
+);
