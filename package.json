@@ -42,7 +42,7 @@
     "@hyperfixation/eslint-config": "^0.0.0",
     "@hyperfixation/testing": "^0.0.0",
     "@turbo/gen": "^2.10.13",
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.5.1",
     "@types/nodemailer": "^7.0.0",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.3.0",
