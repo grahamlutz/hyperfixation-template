@@ -7,8 +7,9 @@
  * not a sign-in prompt: the existence of an admin at this path is itself not theirs to learn.
  * A code-factor session is confined to `/auth/*` and never reaches here either.
  *
- * TODO(track C): gate on `requireSession({ factor: 'passkey', role: 'admin' })` and
- * `notFound()` on refusal. `@hyperfixation/auth` is a placeholder today.
+ * TODO(track C): gate on `requireSession({ factor: 'passkey', role: ADMIN_ROLE })` and call
+ * `notFound()` on `AccessRefused`. The package landed while this template was being written;
+ * the guard's host is still track C's to place.
  * TODO(track D): render `@hyperfixation/admin`, which is a placeholder today.
  */
 export default async function AdminPage({ params }: { params: Promise<{ path?: string[] }> }) {
