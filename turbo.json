@@ -1,0 +1,5 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "//": "Not a monorepo — turbo is here for `turbo gen`, which runs the generators in turbo/generators/.",
+  "tasks": {}
+}

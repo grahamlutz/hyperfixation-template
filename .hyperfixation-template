@@ -1,0 +1,13 @@
+# The marker `hf new` looks for.
+#
+# `hf new` copies this repo with giget and then substitutes the placeholders below across the
+# tree. Its first act on the copied directory is to assert this file exists — a copy that
+# landed somewhere unexpected, or a directory that is already a real app, fails loudly instead
+# of being rewritten. Its last act is to delete this file, so an app is never a template twice.
+#
+# `hf new` refuses a name that does not match `^[a-z][a-z0-9_-]{0,62}$`, and derives
+# `__DB_NAME__` as `hf_<app name with - replaced by _>`, validated `^[a-z][a-z0-9_]{0,62}$`.
+
+placeholders:
+  - __APP_NAME__
+  - __DB_NAME__

@@ -1,0 +1,51 @@
+{
+  "name": "__APP_NAME__",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "node .next/standalone/server.js",
+    "worker": "node --import tsx worker.ts",
+    "migrate": "node --import tsx migrate.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "gen": "turbo gen"
+  },
+  "dependencies": {
+    "@dbos-inc/dbos-sdk": "4.27.6",
+    "@hyperfixation/admin": "^0.0.0",
+    "@hyperfixation/ai": "^0.0.0",
+    "@hyperfixation/auth": "^0.0.0",
+    "@hyperfixation/core": "^0.0.0",
+    "@hyperfixation/db": "^0.0.0",
+    "@hyperfixation/workflows": "^0.0.0",
+    "drizzle-orm": "^0.45.2",
+    "next": "^16.3.5",
+    "pg": "^8.23.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "tsx": "^4.20.0"
+  },
+  "devDependencies": {
+    "@hyperfixation/eslint-config": "^0.0.0",
+    "@hyperfixation/testing": "^0.0.0",
+    "@turbo/gen": "^2.10.13",
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^10.10.0",
+    "turbo": "^2.1.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0",
+    "yaml": "^2.9.1"
+  }
+}
