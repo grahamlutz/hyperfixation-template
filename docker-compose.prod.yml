@@ -1,0 +1,95 @@
+# The deployed stack: one image, three services, `migrate` first.
+#
+# Every `environment:` block below lists exactly `REQUIRED_ENV` from `src/env.ts`, and
+# `tests/compose-envs.test.ts` fails if any of the three drifts from it. Identical blocks are
+# deliberate: a per-service subset would let a var reach one container and not another, which
+# is the one deploy fault the redeploy sequence cannot see.
+#
+# Values come from Coolify's environment; nothing here holds a secret.
+
+x-app: &app
+  image: ${DOCKER_IMAGE:-__APP_NAME__}:${SOURCE_COMMIT:-latest}
+  build:
+    context: .
+    args:
+      SOURCE_COMMIT: ${SOURCE_COMMIT:-}
+  restart: unless-stopped
+
+services:
+  # One-shot. Runs as the migrator role — the only service that ever does — and both other
+  # services wait for it to exit 0: core migrations, app migrations, `dbos schema -s dbos -r
+  # hf___APP_NAME__`, delete-guard triggers, `hf_grant_ro`, every deploy.
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["node", "--import", "tsx", "migrate.ts"]
+    mem_limit: 256m
+    environment:
+      HF_PROCESS: migrate
+      HF_BUILD_SHA: ${SOURCE_COMMIT:-}
+      DATABASE_URL: ${DATABASE_URL}
+      MIGRATOR_DATABASE_URL: ${MIGRATOR_DATABASE_URL}
+      APP_URL: ${APP_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      SMTP_URL: ${SMTP_URL}
+      EMAIL_FROM: ${EMAIL_FROM}
+      SENTRY_DSN: ${SENTRY_DSN}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+  web:
+    <<: *app
+    command: ["node", "server.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "3000:3000"
+    mem_limit: 512m
+    environment:
+      HF_PROCESS: web
+      HF_BUILD_SHA: ${SOURCE_COMMIT:-}
+      DATABASE_URL: ${DATABASE_URL}
+      MIGRATOR_DATABASE_URL: ${MIGRATOR_DATABASE_URL}
+      APP_URL: ${APP_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      SMTP_URL: ${SMTP_URL}
+      EMAIL_FROM: ${EMAIL_FROM}
+      SENTRY_DSN: ${SENTRY_DSN}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+
+  worker:
+    <<: *app
+    command: ["node", "--import", "tsx", "worker.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    mem_limit: 768m
+    # The last line of defence, and the reason it is 90 and not 60: on SIGTERM the worker runs
+    # `DBOS.shutdown({ workflowCompletionTimeoutMS: 60_000 })` behind a 75 s watchdog that
+    # exits 1 if the drain hangs. SIGKILL at 90 s is what covers a synchronous block in a step
+    # body delaying the handler's own entry. The advisory lock is released by the process
+    # dying and never earlier, so the next worker cannot start while old-version code can run.
+    stop_grace_period: 90s
+    environment:
+      HF_PROCESS: worker
+      HF_BUILD_SHA: ${SOURCE_COMMIT:-}
+      DATABASE_URL: ${DATABASE_URL}
+      MIGRATOR_DATABASE_URL: ${MIGRATOR_DATABASE_URL}
+      APP_URL: ${APP_URL}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      SMTP_URL: ${SMTP_URL}
+      EMAIL_FROM: ${EMAIL_FROM}
+      SENTRY_DSN: ${SENTRY_DSN}
+      LANGFUSE_BASE_URL: ${LANGFUSE_BASE_URL}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
