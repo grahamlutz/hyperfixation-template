@@ -3,13 +3,14 @@
 A Hyperfixation app: a Next.js front end, a DBOS worker, and one Postgres database, deployed as
 three containers from one image.
 
+`hf new` already wrote `.env` and asked for the bootstrap admin's address. From here:
+
 ```
-docker compose up -d                 # postgres (pgvector/pg17) and mailpit
-cp .env.example .env
-hf migrate                           # core migrations, this app's migrations, dbos schema
-hf bootstrap --email you@example.com  # the first admin; there is no sign-up
-hf dev                               # web and worker, HF_BUILD_SHA=dev-<timestamp>
+hf up   # install, infra, migrate, bootstrap, status tokens, then web and worker in the foreground
 ```
+
+Safe to rerun: each step skips itself once it's already done, so `hf up` is also the everyday
+"start the app" command.
 
 - `http://localhost:3000/auth/sign-in` — an emailed code, then a passkey at `/auth/passkey`
 - `http://localhost:3000/w` — the workspace
@@ -31,7 +32,7 @@ docker compose -f docker-compose.prod.yml config
 `HF_TEST_DATABASE_URL` names and drops it afterwards.
 
 `pnpm test:e2e` is separate and heavier: it drives a real browser through sign-in, passkey
-enrolment and the admin's 404, against this app's own dev compose. It wants the four commands
-above to have been run, plus `pnpm exec playwright install chromium` once. The passkey half
+enrolment and the admin's 404, against this app's own dev compose. It wants `hf up` to have been
+run once, plus `pnpm exec playwright install chromium`. The passkey half
 runs on a virtual authenticator inside the browser, so no hardware is involved.
 `HF_E2E_BUILD=1 pnpm test:e2e` runs the same suite against the standalone build a deploy serves.
