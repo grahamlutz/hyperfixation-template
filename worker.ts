@@ -1,3 +1,8 @@
+// First, and for effect: it fills `process.env` from `.env` before `./src/hyperfixation` is
+// evaluated, which is where `defineApp()` reads `HF_BUILD_SHA`. Next loads `.env` for the web;
+// this is the same for the two entrypoints Next never sees. Values already in the environment
+// — compose's, and the `HF_BUILD_SHA` `hf dev` invents — win over the file.
+import "./src/boot-env";
 import path from "node:path";
 import { startWorker } from "@hyperfixation/workflows";
 import { requireEnv } from "./src/env";

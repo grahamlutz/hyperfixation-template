@@ -1,3 +1,6 @@
+// First, and for effect — see `worker.ts`. The same gap: `pnpm migrate` is a plain Node process
+// and Next loads `.env` for nobody but the web.
+import "./src/boot-env";
 import path from "node:path";
 import { migrate } from "@hyperfixation/db/migrator";
 import { requireEnv } from "./src/env";
