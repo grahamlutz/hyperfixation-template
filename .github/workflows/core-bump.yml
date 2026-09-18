@@ -52,7 +52,7 @@ jobs:
       - run: pnpm install --frozen-lockfile=false && pnpm test
         continue-on-error: true
 
-      - uses: peter-evans/create-pull-request@v7
+      - uses: peter-evans/create-pull-request@v8
         with:
           branch: core-bump/${{ steps.version.outputs.version }}
           commit-message: "Move @hyperfixation/* to ${{ steps.version.outputs.version }}"
