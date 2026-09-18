@@ -1,12 +1,23 @@
 # The marker `hf new` looks for.
 #
-# `hf new` copies this repo with giget and then substitutes the placeholders below across the
-# tree. Its first act on the copied directory is to assert this file exists — a copy that
-# landed somewhere unexpected, or a directory that is already a real app, fails loudly instead
-# of being rewritten. Its last act is to delete this file, so an app is never a template twice.
+# `hf new` copies this repo and then substitutes the placeholders below across the tree. Its
+# first act on the *source* is to assert this file exists — a copy pointed somewhere
+# unexpected, or at a directory that is already a real app, fails loudly instead of being
+# rewritten. Its last act on the copy is to delete this file, so an app is never a template
+# twice.
 #
-# `hf new` refuses a name that does not match `^[a-z][a-z0-9_-]{0,62}$`, and derives
-# `__DB_NAME__` as `hf_<app name with - replaced by _>`, validated `^[a-z][a-z0-9_]{0,62}$`.
+# `hf new` refuses a name that does not match `^[a-z][a-z0-9_-]{0,62}$`. The directory it
+# creates is the name as typed; **both placeholders are the underscored form**, because every
+# one of their occurrences ends up as an identifier:
+#
+#   __APP_NAME__   the name with `-` replaced by `_`, validated `^[a-z][a-z0-9_]{0,62}$`
+#   __DB_NAME__    `hf_<__APP_NAME__>`, validated the same way
+#
+# `src/hyperfixation.ts` hands `__APP_NAME__` to `defineApp`, which reaches `roleNames()` in
+# `@hyperfixation/db` — and that refuses a hyphen. `hf_<__APP_NAME__>` is therefore both the
+# database name and the application role, which is the identity `provisionRoles` already
+# assumes. So `hf new demo-app` creates `demo-app/` holding the app `demo_app` on the database
+# `hf_demo_app` as the role `hf_demo_app`.
 
 placeholders:
   - __APP_NAME__
