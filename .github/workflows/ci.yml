@@ -65,7 +65,10 @@ jobs:
       # The contract suite. `flow-restart.test.ts` runs every registered flow through a restart
       # under the worker's fence rule, which is what gates a core bump on this app's own shape.
       - run: pnpm test
-      - run: pnpm build
+      # `--webpack`, not the `build` script: Turbopack cannot resolve a `link:`-ed package
+      # outside the project root, the same reason `dev` carries the flag. `build` deliberately
+      # keeps the published-correct spelling (see `tests/e2e/server.ts`, which does the same).
+      - run: pnpm exec next build --webpack
 
   # The deploy shape is checked by `compose-envs.test.ts` above, which reads the file; this
   # asserts Docker itself can resolve it — interpolation, the `x-app` anchor, the build args.
