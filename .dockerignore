@@ -1,0 +1,12 @@
+node_modules
+.next
+out
+.turbo
+*.tsbuildinfo
+.env
+.env.local
+.env.*.local
+.DS_Store
+
+# `.git` is deliberately NOT ignored: the Dockerfile's SOURCE_COMMIT fallback is
+# `git rev-parse HEAD` in the build stage, and it needs a repository to read.
