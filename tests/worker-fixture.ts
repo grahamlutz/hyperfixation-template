@@ -1,0 +1,27 @@
+/**
+ * The worker the contract suite spawns: a real process running the app's real entrypoint
+ * logic, because `startWorker()` cannot be tested in-process — DBOS refuses a second launch,
+ * and the advisory lock is released by process death and nothing else.
+ *
+ * It differs from `worker.ts` in exactly one way: the app name and database URL come from the
+ * harness's per-test database rather than from the environment. Everything the restart
+ * assertion depends on — the flow registrations, the step pool's fence, `HF_PROCESS=worker` —
+ * is the production path.
+ */
+import path from "node:path";
+import { startWorker } from "@hyperfixation/workflows";
+import { runWorkerModule } from "@hyperfixation/testing/worker";
+import { app, recordTables } from "../src/hyperfixation";
+
+await runWorkerModule({
+  start: async ({ appName, databaseUrl }) => {
+    const worker = await startWorker({
+      appName,
+      databaseUrl,
+      recordTables,
+      appMigrationsDir: path.resolve(process.cwd(), "drizzle"),
+    });
+    app.attach({ pool: worker.control.pool, client: worker.client });
+    return worker;
+  },
+});
