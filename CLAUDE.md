@@ -22,6 +22,9 @@ fencing token, and runs it again from the top on the new code. So:
 
 `tests/flow-restart.test.ts` is where all of this is checked, for every registered flow, on
 every commit. If a change makes it red, the change is wrong far more often than the test is.
+`tests/contract.test.ts` is its other half: the same flows run **once**, in order, with the
+approval decided and the rows asserted — because four flows that each did nothing pass a
+restart just as well as four that ran the loop.
 
 ## Layout
 
@@ -43,6 +46,7 @@ every commit. If a change makes it red, the change is wrong far more often than 
 | `fixtures/` | One per flow, named for the flow. The contract suite needs it |
 | `fixtures/llm/` | `<promptName>.json`, served whenever no provider key is set |
 | `fixtures/sources/` | What the demo source streams, in place of a real API |
+| `tests/` | `contract` (the loop once, end to end), `flow-restart` (every flow twice), `draft-approval` (past the gate), `demo-draft-schema` (the validators alone), `records-archive` (the mixin), `compose-envs` (the env contract) |
 | `app/` | The two catch-all routes, `/auth/*`, and the two API mounts. Almost nothing per-app |
 | `worker.ts` / `migrate.ts` | The worker — which also drives `app.schedules` — and the one-shot migrator |
 
@@ -81,11 +85,19 @@ launch in one process, and the advisory lock is released by process death and no
 ## Replacing the demo
 
 The template ships a working loop, on one record table (`demo_note`), so the contract suite has
-something real to hold and so the shape of every registration is visible rather than described: a
-source, a resolver, a spec, a scorer, the `demoDraft` approval type, the `email` channel, and the
-four flows that chain them — `collectDemoSource`, `resolveDemoSource`, `scoreDemoNotes` on a
-schedule each, and `draftDemoOutreach`, which is started for a record rather than on a clock
-because it asks a human. With no provider key set the model's answers come from `fixtures/llm/`
-and with `SMTP_URL` unset the channel serializes the mail instead of sending it, so it all runs
-on a laptop and in CI for nothing. `.claude/skills/replace-demo/` is the guided way to swap it
-for this app's own domain.
+something real to hold and so the shape of every registration is visible rather than described:
+
+| | |
+|---|---|
+| `src/sources/demo.ts` | the `demoBusinesses` source, over `fixtures/sources/demoBusinesses.json` |
+| `src/resolvers/demo.ts` | the `demoNotes` resolver — exact on `normalized_name`, then trigram |
+| `src/specs/demo.ts`, `src/scorers/demo.ts` | the `demoFit` criteria and the `llm.run` that judges against them |
+| `src/approvals/demo-draft.ts` | the `demoDraft` schema: the length caps, no URL, no phone, the contact allowlist |
+| `src/channels/email.ts` | the `email` channel, `dedupes: false` |
+| `src/flows/` | `collectDemoSource`, `resolveDemoSource`, `scoreDemoNotes` — one schedule each — and `draftDemoOutreach`, started for a record rather than on a clock because it asks a human |
+| `prompts/score.md`, `prompts/draft.md` | with `fixtures/llm/score.json` and `draft.json` beside them |
+
+With no provider key set the model's answers come from `fixtures/llm/` and with `SMTP_URL` unset
+the channel serializes the mail instead of sending it, so it all runs on a laptop and in CI for
+nothing. `.claude/skills/replace-demo/` is the guided way to swap it for this app's own domain,
+and it names every file to touch.

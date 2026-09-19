@@ -8,11 +8,30 @@ description: Replace the template's demo loop and demo record table with this ap
 `hf new` leaves a working loop in place — the `demoBusinesses` source, the `demoNotes` resolver,
 the `demoFit` spec and scorer, the `demoDraft` approval type, the `email` channel, the four flows
 that chain them (`collectDemoSource`, `resolveDemoSource`, `scoreDemoNotes`, `draftDemoOutreach`)
-and one record table (`demo_note`). It exists so
-`tests/flow-restart.test.ts` has something real to run on day one — a contract suite with nothing
+and one record table (`demo_note`). It exists so `tests/contract.test.ts` and
+`tests/flow-restart.test.ts` have something real to run on day one — a contract suite with nothing
 registered passes vacuously, which is worse than no suite — and so each kind of registration has
 one worked example to read. This skill swaps it for the app's own domain without leaving the suite
 empty in between.
+
+Every file the demo owns, so the swap is a checklist rather than an `rg`:
+
+| Kind | Files |
+|---|---|
+| Registry | `src/hyperfixation.ts` — the `flows`, `records`, `sources`, `resolvers`, `specs`, `scorers`, `approvalTypes`, `channels` and `schedules` arrays |
+| Source | `src/sources/demo.ts`, `fixtures/sources/demoBusinesses.json` |
+| Resolver | `src/resolvers/demo.ts` |
+| Spec and scorer | `src/specs/demo.ts`, `src/scorers/demo.ts` |
+| Approval type | `src/approvals/demo-draft.ts` |
+| Channel | `src/channels/email.ts` |
+| Flows | `src/flows/collect-demo-source.ts`, `resolve-demo-source.ts`, `score-demo-notes.ts`, `draft-demo-outreach.ts` |
+| Flow fixtures | `fixtures/collectDemoSource.json`, `resolveDemoSource.json`, `scoreDemoNotes.json`, `draftDemoOutreach.json` |
+| Prompts, each with its fixture | `prompts/score.md` with `fixtures/llm/score.json`, `prompts/draft.md` with `fixtures/llm/draft.json` |
+| Record table | `src/db/schema/demo.ts` and its `export` in `src/db/schema/index.ts`; `drizzle/0000_demo_note.sql`, `0001_demo_note_mixin.sql`, `0002_demo_note_contact_email.sql` |
+| Tests | `tests/contract.test.ts`, `flow-restart.test.ts`, `draft-approval.test.ts`, `demo-draft-schema.test.ts`, `records-archive.test.ts` |
+
+`src/llm.ts`, `tests/worker-fixture.ts` and `tests/compose-envs.test.ts` are the app's, not the
+demo's, and stay as they are.
 
 ## Do it in this order
 
@@ -96,10 +115,15 @@ Delete, in one commit:
 - `demo_note` from `APP_TABLES` in `tests/flow-restart.test.ts`, replacing it with the tables
   the real flows write — and the two values tests in the same file, "left the demo loop's own rows
   behind" and "left one pending draft approval behind", replaced by the equivalent assertions on
-  what the app's own loop produces
+  what the app's own loop produces. The `it.each` over `app.flows.all()` needs no edit: it picks
+  up whatever is registered, which is why step 3 comes before this one
+- `tests/contract.test.ts`, repointed at the app's own loop rather than deleted: it is the only
+  suite that runs the chain once, end to end, and asserts the rows it left. Keep its shape — the
+  keyless-and-mailserverless guard, the `runFlowSync` pass over every flow in registration order,
+  the decision, and the assertion that nothing was billed — and change what it counts
 - `tests/draft-approval.test.ts`, repointed at the app's own approval and channel rather than
   deleted: the restart harness never decides an approval, so nothing else covers the half of a
-  flow that runs after the gate — the send, the task, the timeline row, and `ActionUncertain`
+  flow that runs after the gate — `ActionUncertain` in particular
 - `tests/records-archive.test.ts`, repointed at a real record type rather than deleted: it is
   what catches a record table that never adopted `hfRecordColumns()`, which fails as a `42703`
   from `records.archive()` and in no other suite
@@ -113,9 +137,9 @@ on purpose (`assertAppMigrationAllowed`): deleting data automatically at deploy 
 allowlist exists to prevent. Deleting the schema file would make `pnpm db:generate` emit a
 `DROP TABLE demo_note` migration that can never run. An unused table costs nothing. If you want
 it gone, drop it by hand on each database in a reviewed step outside the migrator, and keep the
-schema file so drizzle's snapshot still agrees. Never edit `drizzle/0000_demo_note.sql` or
-`0001`: a migration that has run somewhere is history, and rewriting it makes the journal
-disagree with the database.
+schema file so drizzle's snapshot still agrees. Never edit `drizzle/0000_demo_note.sql`,
+`0001_demo_note_mixin.sql` or `0002_demo_note_contact_email.sql`: a migration that has run
+somewhere is history, and rewriting it makes the journal disagree with the database.
 
 ```
 pnpm db:generate
@@ -136,5 +160,9 @@ Nothing else should be.
 - Do not delete the demo first and add the real thing after. `flow-restart.test.ts` asserts at
   least one flow is registered, and a window where it passes on nothing is a window where a
   broken fixture path goes unnoticed.
-- Do not keep `demo_note` "just in case". It has a delete-guard trigger and a `record_type`
-  registration; an unregistered type left in a machinery row fails boot check E002.
+- Do not drop the `demoNote` entry from `records` on a database the demo loop has already run
+  on. `hf_approval`, `hf_action_log`, `hf_activity`, `hf_task`, `hf_score` and `hf_label` all
+  carry `record_type = 'demoNote'` by then, and boot check E002 refuses the next boot over a
+  type nobody registers. Delete those rows in the same reviewed step that drops the
+  registration — `tests/contract.test.ts` asserts exactly this failure, against a real loop's
+  rows, so it is the fastest way to see what E002 would say.
