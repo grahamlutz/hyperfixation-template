@@ -1,6 +1,14 @@
-# This is not a monorepo. The file survives only for `allowBuilds`, which pnpm 12 reads from
-# here and no longer from `package.json`; the `@hyperfixation/*` link overrides it used to carry
-# are gone now that the packages resolve from npm.
+# This is not a monorepo. The file survives for two pnpm settings that pnpm 12 reads from here
+# and no longer from `package.json`; the `@hyperfixation/*` link overrides it used to carry are
+# gone now that the packages resolve from npm. `hf new` copies this file into every app, which
+# is why both settings belong here rather than in a developer's own config.
+
+# pnpm 12 refuses any version published less than 24 hours ago. That is a sensible default
+# against a compromised release of someone else's package and a wrong one for our own: a core
+# bump PR opens minutes after the publish it bumps to, and without this it cannot install for a
+# day. Scoped to `@hyperfixation/*` only — every third-party package keeps the full wait.
+minimumReleaseAgeExclude:
+  - "@hyperfixation/*"
 
 # vitest pulls esbuild; the same allowance hyperfixation-core makes.
 allowBuilds:
