@@ -32,13 +32,20 @@ later means migrating rows, not renaming a symbol.
 
 ```
 pnpm gen              # choose "record"
-pnpm db:generate      # writes drizzle/0001_<name>.sql
+pnpm db:generate      # writes drizzle/<next number>_<name>.sql
 pnpm typecheck
 ```
 
+The generated table spreads `hfRecordColumns()` — `normalized_name`, `archived_at`, `stage`,
+the score pair, `spec_version` — because the machinery addresses those columns by name on
+whatever table a record type points at. Add this app's own columns after the spread; a column
+redeclared there wins, which is how a mixin column gets tightened to `NOT NULL` or made
+unique, as `demo_note` does with `normalized_name`.
+
 Check the generated SQL before committing it. It must not create, alter or drop an `hf_*`
 table (boot check E005) and must not carry a foreign key to one (E004). `CREATE EXTENSION`
-must be `IF NOT EXISTS`.
+must be `IF NOT EXISTS`, and an `ADD COLUMN` against an existing table must be nullable or
+carry a default — the migrator's allowlist refuses the rest.
 
 ### 3. Add the real flow, keeping the demo one
 
@@ -68,6 +75,9 @@ Delete, in one commit:
   in `src/hyperfixation.ts`'s `records`
 - `demo_note` from `APP_TABLES` in `tests/flow-restart.test.ts`, replacing it with the tables
   the real flows write
+- `tests/records-archive.test.ts`, repointed at a real record type rather than deleted: it is
+  what catches a record table that never adopted `hfRecordColumns()`, which fails as a `42703`
+  from `records.archive()` and in no other suite
 
 Add a migration dropping `demo_note` — do not edit `drizzle/0000_demo_note.sql`. A migration
 that has run somewhere is history; rewriting it makes the journal disagree with the database.
