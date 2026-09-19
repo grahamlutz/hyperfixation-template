@@ -1,0 +1,18 @@
+[
+  {
+    "externalId": "acme-roofing",
+    "payload": {
+      "normalized_name": "acme roofing",
+      "body": "Family roofing contractor, two vans, works the north side of the city.",
+      "contact_email": "owner@acme-roofing.example"
+    }
+  },
+  {
+    "externalId": "brightleaf-landscaping",
+    "payload": {
+      "normalized_name": "brightleaf landscaping",
+      "body": "Listed in three directories, no named contact, mostly subcontracts the work out.",
+      "contact_email": "info@brightleaf.example"
+    }
+  }
+]

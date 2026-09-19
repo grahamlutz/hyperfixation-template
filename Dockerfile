@@ -59,6 +59,9 @@ COPY --from=builder /app/migrate.ts ./migrate.ts
 COPY --from=builder /app/src ./src
 COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/prompts ./prompts
+# The fixture provider reads `fixtures/llm/` when no provider key is set, and the demo source
+# reads `fixtures/sources/`; both resolve against the working directory at run time.
+COPY --from=builder /app/fixtures ./fixtures
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 USER node

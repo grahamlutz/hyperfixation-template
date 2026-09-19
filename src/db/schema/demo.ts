@@ -16,11 +16,12 @@ export const demoNote = pgTable(
     // Two of the mixin's columns, tightened. The mixin leaves every column nullable and
     // non-unique so that adopting it is an additive migration; this table carried both
     // constraints before the mixin and keeps them — dropping `normalized_name`'s uniqueness
-    // would be a migration the app policy refuses, and it is what the demo flow's
-    // `ON CONFLICT` upsert converges against across an attempt bump.
+    // would be a migration the app policy refuses, and the unique index is what `demoResolver`'s
+    // exact join reads.
     normalizedName: text("normalized_name").notNull().unique(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     body: text("body").notNull(),
+    contactEmail: text("contact_email"),
   },
   (t) => [index("demo_note_normalized_name_trgm").using("gin", t.normalizedName)],
 );
