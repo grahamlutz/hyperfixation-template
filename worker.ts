@@ -7,6 +7,7 @@ import path from "node:path";
 import { startWorker } from "@hyperfixation/workflows";
 import { requireEnv } from "./src/env";
 import { app, recordTables } from "./src/hyperfixation";
+import { approvalNotifier } from "./src/notify";
 
 /**
  * The worker container's entrypoint, and the only process in the app that reaches
@@ -32,8 +33,43 @@ const worker = await startWorker({
   databaseUrl: requireEnv("DATABASE_URL"),
   recordTables,
   appMigrationsDir: APP_MIGRATIONS_DIR,
+  // Every gate's notification, since no flow passes a `notify` of its own.
+  approvalNotifier: approvalNotifier(),
 });
 
 // The worker's control plane: the pool `startWorker()` built and its own `DBOSClient`. The web
 // attaches the other pair. No export of any package resolves to this pool; it exists only here.
 app.attach({ pool: worker.control.pool, client: worker.client });
+
+/**
+ * The schedules, driven by a plain timer outside DBOS — the same shape `startReconciler()` has,
+ * and for the same reason: a schedule starts a run and never sleeps durably, because a durable
+ * sleep is a workflow parked across an `applicationVersion` boundary. `runs.start()` refuses to
+ * be called from inside a run at all.
+ *
+ * `lastFired` lives in this process only. A worker that restarts fires everything once, which is
+ * the cheap direction of the trade: `fire` is a `runs.start`, and every flow it starts is keyed,
+ * so an extra firing converges instead of duplicating. A paused app starts nothing.
+ *
+ * `unref` so the timer is never itself the reason the process stays up, and the interval is the
+ * tick rather than any schedule's period — `schedules.due()` is what compares the clock.
+ */
+const SCHEDULE_TICK_MS = 30_000;
+const lastFired = new Map<string, Date>();
+
+const tick = setInterval(() => {
+  void (async () => {
+    const now = new Date();
+    for (const name of app.schedules.due(now, lastFired)) {
+      try {
+        const fired = await app.schedules.fire(name);
+        if (fired.started) lastFired.set(name, now);
+      } catch (error) {
+        // A schedule that cannot start is this tick's problem, not the next one's, and never the
+        // worker's: the run it would have started is re-derived from the clock in 30 seconds.
+        console.error("hf-schedule: fire refused", name, error);
+      }
+    }
+  })();
+}, SCHEDULE_TICK_MS);
+tick.unref();

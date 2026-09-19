@@ -1,8 +1,12 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { DBOSClient } from "@dbos-inc/dbos-sdk";
-import { bumpAttempt, controlPlaneTx } from "@hyperfixation/db";
-import { asRole, createTestDatabase, spawnWorker, type TestDatabase } from "@hyperfixation/testing";
+import {
+  createTestDatabase,
+  runFlowSync,
+  spawnWorker,
+  type TestDatabase,
+} from "@hyperfixation/testing";
 import { getClient, resetClient, type Flow } from "@hyperfixation/workflows";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -13,23 +17,36 @@ import { app, recordTables } from "../src/hyperfixation";
  * with the second attempt asserted to add nothing.
  *
  * The restart is the point. A run crosses a deploy only by restarting — `reconcile()` bumps
- * every run left `running` under the old version through the same path this test drives — so a
- * flow that is not idempotent across an attempt bump is a flow that double-charges, double-
+ * every run left `running` under the old version through the same path `runFlowSync` drives — so
+ * a flow that is not idempotent across an attempt bump is a flow that double-charges, double-
  * sends, or double-writes on the first redeploy that happens to catch it mid-run. That is
  * invisible in a test that runs a flow once, which is why this one runs every flow twice.
  *
- * And because the worker is a real process under `HF_PROCESS=worker`, the step pool's
- * production fence rule is in force: any write a flow issues outside `ctx.tx` — from a timer,
- * a listener, a helper that imported the raw handle — is refused as `UnfencedWrite` here, in
- * the app's own suite, rather than in production. `spawnWorker` surfaces those as fencing
- * failures, and a flow that produces one fails below.
+ * And because the worker is a real process under `HF_PROCESS=worker`, the step pool's production
+ * fence rule is in force: any write a flow issues outside `ctx.tx` — from a timer, a listener, a
+ * helper that imported the raw handle — is refused as `UnfencedWrite` here, in the app's own
+ * suite, rather than in production. `runFlowSync` fails on one rather than waiting out a timeout.
+ *
+ * What it asserts is **row counts**, not values. A bumped attempt is a new workflow id, so every
+ * step body genuinely re-runs; an upsert that increments a column keeps its row count while its
+ * value moves. A flow that has to be value-idempotent needs its own assertion on top of this one.
+ *
+ * The flows run in the order `src/hyperfixation.ts` registers them, and that order is load-
+ * bearing because the demo's fixtures chain: `collectDemoSource` stages the source's rows,
+ * `resolveDemoSource` turns them into the `demo_note` records, those are what `scoreDemoNotes`
+ * finds to score, and the scores are what `draftDemoOutreach` picks a record to write to by.
+ * Nothing here resets the database between flows on purpose — the loop is what is under test,
+ * not four flows in isolation.
+ *
+ * `draftDemoOutreach` settles `waiting` rather than `done`, which is a case worth naming: both
+ * attempts stop at the same approval, and the second one must re-suspend on the row the first
+ * one wrote instead of opening a second gate. What happens once that approval is decided is
+ * `draft-approval.test.ts` — the restart harness never decides one.
  */
 
 const FIXTURES = new URL("../fixtures/", import.meta.url);
 const WORKER_MODULE = fileURLToPath(new URL("./worker-fixture.ts", import.meta.url));
 
-/** Every machinery table whose row count a restart must not change. */
-const MACHINERY_TABLES = ["hf_llm_call", "hf_action_log", "hf_audit", "hf_approval"] as const;
 /** Every app table the demo writes. Add a table here when a flow starts writing one. */
 const APP_TABLES = ["demo_note"] as const;
 
@@ -59,6 +76,13 @@ describe("flow-restart", () => {
     await worker.ready();
 
     pool = new Pool({ connectionString: database.applicationUrl, max: 2 });
+
+    // What `hf bootstrap` seeds, and what `llm.run`'s gate needs: `hf_budget_period` is created
+    // from `hf_app_state.budget_usd` by the month's first call, and there is nothing to copy
+    // without this row. A fixture answer bills zero tokens, but the gate still *reserves* the
+    // priced model's estimate before the call settles at 0 — so the budget has to cover the
+    // estimate of every call a flow makes, not the nothing they end up costing.
+    await pool.query("INSERT INTO hf_app_state (id, paused, budget_usd) VALUES (1, false, '100')");
     client = await getClient({ appName: database.appName, databaseUrl: database.applicationUrl });
     app.attach({ pool, client });
   }, 120_000);
@@ -79,86 +103,64 @@ describe("flow-restart", () => {
   it.each(flows.map((flow) => [flow.name, flow] as const))(
     "%s adds nothing on a second attempt",
     async (name, flow) => {
-      // A registry holds `Flow<never, unknown>` — the bottom of the family, because input is
-      // contravariant — so iterating every flow and handing each one a `unknown` fixture needs
-      // the widening spelled out. The fixture's shape is the flow's own contract, checked by
-      // the flow at run time and by nothing here.
-      const started = await app.runs.start(flow as unknown as Flow<unknown>, fixtureFor(name));
-      await waitForStatus(started.runId, "done");
-      const afterFirst = await counts();
+      const result = await runFlowSync(
+        {
+          pool,
+          client,
+          worker,
+          // A registry holds `Flow<never, unknown>` — the bottom of the family, because input is
+          // contravariant — so handing each flow an `unknown` fixture needs the widening spelled
+          // out. The fixture's shape is the flow's own contract, checked by the flow at run time
+          // and by nothing here.
+          start: (f, input) => app.runs.start(f as Flow<unknown, unknown>, input),
+          tables: APP_TABLES,
+        },
+        flow,
+        fixtureFor(name),
+      );
 
-      // Exactly what `reconcile()` and `decide()` do to a run a redeploy interrupted: one
-      // transaction that takes `hf_run FOR UPDATE`, moves the fencing token on, and enqueues
-      // the next attempt. Nothing about the flow knows it is the second time.
-      const bumped = await controlPlaneTx(pool, { operation: "flow-restart" }, async (pg) => {
-        const next = await bumpAttempt(pg, started.runId);
-        await client.enqueueInTransaction(
-          pg,
-          { queueName: flow.queue, workflowName: flow.name, workflowID: next.workflowId },
-          { runId: started.runId, attempt: next.attempt, input: next.input },
-        );
-        return next;
-      });
-      expect(bumped.attempt).toBe(2);
-
-      await waitForWorkflow(bumped.workflowId, "done");
-      expect(await counts()).toEqual(afterFirst);
-      expect(worker.fencingFailures()).toEqual([]);
+      // Both attempts settled at the same status, and a `waiting` flow re-suspended.
+      expect(result.attempts).toBe(2);
     },
     180_000,
   );
 
-  async function counts(): Promise<Record<string, number>> {
-    return asRole(database.applicationUrl, async (pg) => {
-      const result: Record<string, number> = {};
-      for (const table of [...MACHINERY_TABLES, ...APP_TABLES]) {
-        const { rows } = await pg.query<{ n: string }>(`SELECT count(*) AS n FROM "${table}"`);
-        result[table] = Number(rows[0]?.n ?? 0);
-      }
-      return result;
-    });
-  }
+  /**
+   * What the restart assertion cannot say. `runFlowSync` counts rows, so four flows that each
+   * did nothing pass it just as well as four that ran the loop — and `scoreDemoNotes` in
+   * particular is trivially stable if `resolveDemoSource` created no records for it to find.
+   * This is the values half: the two fixture businesses became two records, and each one carries
+   * the score `fixtures/llm/score.json` answers with under spec version 1.
+   */
+  it("left the demo loop's own rows behind", async () => {
+    const { rows } = await pool.query<{
+      normalized_name: string;
+      score: number;
+      spec_version: number;
+    }>("SELECT normalized_name, score, spec_version FROM demo_note ORDER BY normalized_name");
 
-  async function waitForStatus(runId: string, status: string, timeoutMs = 60_000): Promise<void> {
-    await until(
-      async () => (await scalar("SELECT status FROM hf_run WHERE run_id = $1", [runId])) === status,
-      timeoutMs,
-      () => `hf_run ${runId} never reached ${status}`,
-    );
-  }
+    expect(rows).toEqual([
+      { normalized_name: "acme roofing", score: 0.82, spec_version: 1 },
+      { normalized_name: "brightleaf landscaping", score: 0.21, spec_version: 1 },
+    ]);
+  });
 
   /**
-   * Keyed on the fencing token rather than on the status: after a bump the row is `running`
-   * again and settles back to `done`, so waiting on the status alone would match the first
-   * attempt's `done` that is still there when the bump commits.
+   * The same gap, for the flow that stops. `draftDemoOutreach` settling `waiting` twice is also
+   * what a flow that selected nothing and suspended on nothing would look like from the counts,
+   * so this names the row: one pending `demoDraft` for the record the scorer liked, and only one
+   * after two attempts.
    */
-  async function waitForWorkflow(workflowId: string, status: string, timeoutMs = 60_000) {
-    await until(
-      async () =>
-        (await scalar(
-          "SELECT status FROM hf_run WHERE current_workflow_id = $1 AND finished_at IS NOT NULL",
-          [workflowId],
-        )) === status,
-      timeoutMs,
-      () => `attempt ${workflowId} never finished ${status}`,
+  it("left one pending draft approval behind", async () => {
+    const { rows } = await pool.query<{ type: string; status: string; record_id: string }>(
+      "SELECT type, status, record_id FROM hf_approval",
     );
-  }
 
-  async function scalar(sql: string, params: unknown[]): Promise<string | undefined> {
-    const { rows } = await pool.query<Record<string, string>>(sql, params);
-    return rows[0] === undefined ? undefined : Object.values(rows[0])[0];
-  }
+    const note = await pool.query<{ id: string }>(
+      "SELECT id::text AS id FROM demo_note WHERE normalized_name = 'acme roofing'",
+    );
+    expect(rows).toEqual([
+      { type: "demoDraft", status: "pending", record_id: note.rows[0]!.id },
+    ]);
+  });
 });
-
-async function until(
-  predicate: () => Promise<boolean>,
-  timeoutMs: number,
-  describeFailure: () => string,
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    if (await predicate()) return;
-    if (Date.now() > deadline) throw new Error(`${describeFailure()} within ${timeoutMs}ms`);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-}

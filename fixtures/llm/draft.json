@@ -1,0 +1,21 @@
+{
+  "responses": [
+    {
+      "when": { "userTextIncludes": "acme roofing" },
+      "json": {
+        "subject": "A question about your north-side roofing work",
+        "body": "Hello,\n\nI came across Acme Roofing while looking for family-run contractors that keep their own vans and crews rather than subcontracting the work out. That is the part I wanted to ask about.\n\nWe are putting together a short list of contractors in the area and would like to include you. If that is of interest, reply to this message and I will send the details.\n\nThanks for your time."
+      },
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    {
+      "json": {
+        "subject": "A question about your work",
+        "body": "Hello,\n\nNo fixture entry matched this business, so this is the default draft. It is deliberately plain: no link, no number, nothing for a reader to follow anywhere.\n\nIf a first email is welcome, reply to this message and I will send the details.\n\nThanks for your time."
+      },
+      "inputTokens": 0,
+      "outputTokens": 0
+    }
+  ]
+}
