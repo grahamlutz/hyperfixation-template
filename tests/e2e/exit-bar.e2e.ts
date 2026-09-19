@@ -1,10 +1,20 @@
-import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { Pool } from "pg";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { loadEnv } from "../../src/load-env";
-import { startServer, type RunningServer } from "./server";
+import {
+  ADMIN_EMAIL,
+  enrolPasskey,
+  MEMBER_EMAIL,
+  noticesFromMailpit,
+  openWithAuthenticator,
+  reloadUntil,
+  required,
+  signInByEmailedCode,
+  startHarness,
+  status,
+  subjectBox,
+  waitForRunStatus,
+  type Harness,
+} from "./harness";
 
 /**
  * Phase 1's exit bar, driven end to end: sign in by emailed code, enrol a passkey through a
@@ -17,60 +27,48 @@ import { startServer, type RunningServer } from "./server";
  * authenticator inside the browser: the ceremony, the attestation and the credential are the
  * ones production runs, and only the hardware is simulated.
  *
- * It needs the dev compose up and the app migrated and bootstrapped — `hf dev --compose-only &&
- * hf migrate && hf bootstrap` — and it starts the server itself. See `pnpm test:e2e`.
+ * It needs the dev compose up and the app migrated and bootstrapped — `hf up` once — and
+ * `./harness.ts` starts the server itself. See `pnpm test:e2e`.
  *
- * The workspace suite at the bottom shares this file's browser, server and sign-in helpers: it is
- * the same signed-in member, one screen further in.
+ * The workspace suite at the bottom is the same signed-in member, one screen further in;
+ * `demo-loop.e2e.ts` is Phase 2's bar over the same harness.
  */
-const MEMBER_EMAIL = "member@example.com";
-const ADMIN_EMAIL = "admin@example.com";
 const DEMO_NOTE_NAME = "e2e archive target";
 const BOARD_NOTE_NAME = "e2e board card";
 const BOARD_ARCHIVED_NAME = "e2e board archived card";
 
-let server: RunningServer;
-let browser: Browser;
-let pool: Pool;
-let mailpit: string;
+let harness: Harness;
 
 beforeAll(async () => {
-  loadEnv(process.cwd());
-  mailpit = mailpitUrl(required("SMTP_URL"));
-  pool = new Pool({ connectionString: required("DATABASE_URL"), max: 2 });
-  await seedMember();
-  server = await startServer();
-  browser = await chromium.launch();
+  harness = await startHarness();
 }, 600_000);
 
 afterAll(async () => {
-  await browser?.close();
-  await server?.stop();
-  await pool?.end();
+  await harness?.stop();
 });
 
 describe("the Phase 1 exit bar", () => {
   it("signs a member in by emailed code, enrols a passkey, and 404s them on /admin", async () => {
-    const { context, page } = await openWithAuthenticator();
+    const { context, page } = await openWithAuthenticator(harness);
     try {
       // A stranger is redirected rather than hidden from: the workspace has nothing to withhold
       // about its own existence, which is what makes the admin's 404 below a statement.
-      await page.goto(`${server.baseUrl}/w`);
+      await page.goto(`${harness.baseUrl}/w`);
       expect(new URL(page.url()).pathname).toBe("/auth/sign-in");
 
-      await signInByEmailedCode(page, MEMBER_EMAIL);
+      await signInByEmailedCode(harness, page, MEMBER_EMAIL);
       // The emailed code is one factor, so it lands on step-up and nowhere else.
       expect(new URL(page.url()).pathname).toBe("/auth/passkey");
 
       // Holding only the code, and not the role either: the admin 404s before the factor is
       // even reached, which is the policy's order and not an accident of this member's state.
-      expect(await status(page, "/admin")).toBe(404);
+      expect(await status(harness, page, "/admin")).toBe(404);
 
       // The workspace refuses the code factor too, but by sending them to step up.
-      await page.goto(`${server.baseUrl}/w`);
+      await page.goto(`${harness.baseUrl}/w`);
       expect(new URL(page.url()).pathname).toBe("/auth/passkey");
 
-      await enrolPasskey(page);
+      await enrolPasskey(harness, page);
       expect(new URL(page.url()).pathname).toBe("/w");
       await page.getByText(`Signed in as ${MEMBER_EMAIL}`).waitFor({ state: "visible" });
 
@@ -80,26 +78,26 @@ describe("the Phase 1 exit bar", () => {
 
       // The whole point: a member who has done everything right still does not learn that an
       // admin exists at this path.
-      expect(await status(page, "/admin")).toBe(404);
-      expect(await status(page, "/admin/users")).toBe(404);
+      expect(await status(harness, page, "/admin")).toBe(404);
+      expect(await status(harness, page, "/admin/users")).toBe(404);
     } finally {
       await context.close();
     }
   }, 300_000);
 
   it("lets the bootstrapped admin, with a passkey, read the users table", async () => {
-    const { context, page } = await openWithAuthenticator();
+    const { context, page } = await openWithAuthenticator(harness);
     try {
-      await page.goto(`${server.baseUrl}/auth/sign-in`);
-      await signInByEmailedCode(page, ADMIN_EMAIL);
+      await page.goto(`${harness.baseUrl}/auth/sign-in`);
+      await signInByEmailedCode(harness, page, ADMIN_EMAIL);
       // An admin holding only an emailed code gets the member's 404, not a step-up: the role
       // test runs first precisely so the two are indistinguishable.
-      expect(await status(page, "/admin")).toBe(404);
+      expect(await status(harness, page, "/admin")).toBe(404);
 
-      await enrolPasskey(page);
+      await enrolPasskey(harness, page);
       expect(new URL(page.url()).pathname).toBe("/w");
 
-      await page.goto(`${server.baseUrl}/admin/users`);
+      await page.goto(`${harness.baseUrl}/admin/users`);
       await page.getByRole("link", { name: ADMIN_EMAIL }).waitFor({ state: "visible" });
       await page.getByRole("link", { name: MEMBER_EMAIL }).waitFor({ state: "visible" });
       // The list's columns are the ones `usersResource` declares, labelled off the metadata.
@@ -109,7 +107,7 @@ describe("the Phase 1 exit bar", () => {
       await page.getByText("Ban reason").waitFor({ state: "visible" });
 
       // A resource the admin does not serve answers exactly as a refusal does.
-      expect(await status(page, "/admin/widgets")).toBe(404);
+      expect(await status(harness, page, "/admin/widgets")).toBe(404);
     } finally {
       await context.close();
     }
@@ -118,15 +116,17 @@ describe("the Phase 1 exit bar", () => {
 
 describe("the workspace", () => {
   it("shows the pipeline board with each record in its stage's column", async () => {
-    const { context, page } = await openWithAuthenticator();
+    const { context, page } = await openWithAuthenticator(harness);
     const onBoard = await seedDemoNote(BOARD_NOTE_NAME, "scored");
     const archived = await seedDemoNote(BOARD_ARCHIVED_NAME, "scored");
-    await pool.query(`UPDATE demo_note SET archived_at = now() WHERE id::text = $1`, [archived]);
+    await harness.pool.query(`UPDATE demo_note SET archived_at = now() WHERE id::text = $1`, [
+      archived,
+    ]);
     try {
-      await signInByEmailedCode(page, MEMBER_EMAIL);
-      await enrolPasskey(page);
+      await signInByEmailedCode(harness, page, MEMBER_EMAIL);
+      await enrolPasskey(harness, page);
 
-      await page.goto(`${server.baseUrl}/w/demoNote`);
+      await page.goto(`${harness.baseUrl}/w/demoNote`);
       await page.getByRole("heading", { name: "Demo notes" }).waitFor({ state: "visible" });
       // The columns are the record type's `stages`, in the order it registered them.
       const columns = await page.getByRole("heading", { level: 2 }).allInnerTexts();
@@ -141,10 +141,10 @@ describe("the workspace", () => {
       const scored = page.getByRole("heading", { name: /^Scored/ }).locator("xpath=..");
       await scored.getByRole("link", { name: BOARD_NOTE_NAME }).waitFor({ state: "visible" });
       await scored.getByRole("link", { name: BOARD_NOTE_NAME }).click();
-      await page.waitForURL(`${server.baseUrl}/w/demoNote/${onBoard}`);
+      await page.waitForURL(`${harness.baseUrl}/w/demoNote/${onBoard}`);
 
       // `workspace.board` reads unarchived rows only, so the archived row is on no column.
-      await page.goto(`${server.baseUrl}/w/demoNote`);
+      await page.goto(`${harness.baseUrl}/w/demoNote`);
       expect(await page.getByRole("link", { name: BOARD_ARCHIVED_NAME }).count()).toBe(0);
     } finally {
       await context.close();
@@ -152,11 +152,11 @@ describe("the workspace", () => {
   }, 300_000);
 
   it("shows a member their home, a record's page, and archives it in one click", async () => {
-    const { context, page } = await openWithAuthenticator();
+    const { context, page } = await openWithAuthenticator(harness);
     const recordId = await seedDemoNote();
     try {
-      await signInByEmailedCode(page, MEMBER_EMAIL);
-      await enrolPasskey(page);
+      await signInByEmailedCode(harness, page, MEMBER_EMAIL);
+      await enrolPasskey(harness, page);
       expect(new URL(page.url()).pathname).toBe("/w");
 
       // Home is the three things that need a human, whether or not any of them has rows yet.
@@ -165,7 +165,7 @@ describe("the workspace", () => {
       await page.getByRole("heading", { name: "Review queue" }).waitFor({ state: "visible" });
       await page.getByText(`Signed in as ${MEMBER_EMAIL}`).waitFor({ state: "visible" });
 
-      await page.goto(`${server.baseUrl}/w/demoNote/${recordId}`);
+      await page.goto(`${harness.baseUrl}/w/demoNote/${recordId}`);
       await page.getByRole("heading", { name: DEMO_NOTE_NAME }).waitFor({ state: "visible" });
 
       await page.getByRole("button", { name: "Label up" }).click();
@@ -185,8 +185,8 @@ describe("the workspace", () => {
       expect(await archivedAt(recordId)).not.toBeNull();
 
       // A record type that is registered but has no such row is a 404, not an empty page.
-      expect(await status(page, "/w/demoNote/999999")).toBe(404);
-      expect(await status(page, "/w/nothingRegistered")).toBe(404);
+      expect(await status(harness, page, "/w/demoNote/999999")).toBe(404);
+      expect(await status(harness, page, "/w/nothingRegistered")).toBe(404);
     } finally {
       await context.close();
     }
@@ -195,7 +195,7 @@ describe("the workspace", () => {
 
 describe("the approval inbox", () => {
   it("approves two real drafts in one batch, with one of them edited", async () => {
-    const { context, page } = await openWithAuthenticator();
+    const { context, page } = await openWithAuthenticator(harness);
     const drafts = await twoPendingDrafts();
     // The edited one is the higher-scoring note's, deliberately. A decision bumps the run's
     // attempt and the attempt runs the flow from the top, `select` included — so the run that
@@ -203,10 +203,10 @@ describe("the approval inbox", () => {
     // picks, which is the best-scoring unarchived row.
     const [untouched, edited] = [drafts.items[0]!, drafts.items[1]!];
     try {
-      await signInByEmailedCode(page, MEMBER_EMAIL);
-      await enrolPasskey(page);
+      await signInByEmailedCode(harness, page, MEMBER_EMAIL);
+      await enrolPasskey(harness, page);
 
-      await page.goto(`${server.baseUrl}/w/approvals`);
+      await page.goto(`${harness.baseUrl}/w/approvals`);
       // Both drafts are here, each field in a box addressed to the approval it belongs to.
       for (const draft of drafts.items) {
         await subjectBox(page, draft.approvalId).waitFor({ state: "visible" });
@@ -214,17 +214,17 @@ describe("the approval inbox", () => {
 
       // One approval on its own page — what the notifier's email links to: the same form with
       // one row and no checkbox to clear.
-      await page.goto(`${server.baseUrl}/w/approvals/${edited.approvalId}`);
+      await page.goto(`${harness.baseUrl}/w/approvals/${edited.approvalId}`);
       await subjectBox(page, edited.approvalId).waitFor({ state: "visible" });
       expect(await page.locator('input[name="ids"][type="checkbox"]').count()).toBe(0);
 
-      await page.goto(`${server.baseUrl}/w/approvals`);
+      await page.goto(`${harness.baseUrl}/w/approvals`);
       await subjectBox(page, edited.approvalId).fill(EDITED_SUBJECT);
       for (const draft of drafts.items) {
         await page.locator(`input[name="ids"][value="${draft.approvalId}"]`).check();
       }
       await page.getByRole("button", { name: "Approve" }).click();
-      await page.waitForURL(`${server.baseUrl}/w/approvals`);
+      await page.waitForURL(`${harness.baseUrl}/w/approvals`);
       // Both have left the inbox: the boxes that edited them are not on the page any more.
       for (const draft of drafts.items) {
         await subjectBox(page, draft.approvalId).waitFor({ state: "detached" });
@@ -241,11 +241,16 @@ describe("the approval inbox", () => {
       );
       expect(rows.find((row) => row.id === untouched.approvalId)?.edited_draft).toBeNull();
       // A decided row is no longer in anyone's inbox, so its own page answers as an unknown id.
-      expect(await status(page, `/w/approvals/${edited.approvalId}`)).toBe(404);
+      expect(await status(harness, page, `/w/approvals/${edited.approvalId}`)).toBe(404);
 
       // And the decision carried the runs on: the attempt it enqueued sent the edited email and
       // left the follow-up task and the timeline row on the record's own page.
-      await reloadUntil(page, `/w/demoNote/${edited.recordId}`, `Follow up with ${edited.name}`);
+      await reloadUntil(
+        harness,
+        page,
+        `/w/demoNote/${edited.recordId}`,
+        `Follow up with ${edited.name}`,
+      );
       await page.getByText("outreach.sent").first().waitFor({ state: "visible" });
       // What went out is what was typed into the box, not what the model proposed.
       await page.getByText(EDITED_SUBJECT).first().waitFor({ state: "visible" });
@@ -261,21 +266,21 @@ describe("the approval inbox", () => {
 
 describe("the approval notifier", () => {
   it("emails the admin a link that opens the approval", async () => {
-    const { context, page } = await openWithAuthenticator();
+    const { context, page } = await openWithAuthenticator(harness);
     const drafts = await twoPendingDrafts();
     const opened = drafts.items[0]!;
-    const link = `${server.baseUrl}/w/approvals/${opened.approvalId}`;
+    const link = `${harness.baseUrl}/w/approvals/${opened.approvalId}`;
     try {
       // The gate named no assignee, so the recipients are the admins — the bootstrapped one is
       // the only row with that role — and the message is `src/notify.ts`'s, sent by the worker
       // through the same mailpit the sign-in codes go to.
-      const messages = await noticesFromMailpit(ADMIN_EMAIL, link);
+      const messages = await noticesFromMailpit(harness, ADMIN_EMAIL, link);
       expect(messages).toHaveLength(1);
       expect(messages[0]!.subject).toContain("demoDraft");
 
       // Followed by the human it was addressed to, the link is the one approval's page.
-      await signInByEmailedCode(page, ADMIN_EMAIL);
-      await enrolPasskey(page);
+      await signInByEmailedCode(harness, page, ADMIN_EMAIL);
+      await enrolPasskey(harness, page);
       await page.goto(link);
       await page.getByRole("heading", { level: 1, name: "demoDraft" }).waitFor({
         state: "visible",
@@ -289,140 +294,27 @@ describe("the approval notifier", () => {
 });
 
 /**
- * A CTAP2 platform authenticator with a resident key and user verification already satisfied —
- * the shape a laptop's own biometric sensor presents. `automaticPresenceSimulation` is what
- * stands in for the touch nobody is there to give.
- */
-async function openWithAuthenticator(): Promise<{ context: BrowserContext; page: Page }> {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  const cdp = await context.newCDPSession(page);
-  await cdp.send("WebAuthn.enable");
-  await cdp.send("WebAuthn.addVirtualAuthenticator", {
-    options: {
-      protocol: "ctap2",
-      transport: "internal",
-      hasResidentKey: true,
-      hasUserVerification: true,
-      isUserVerified: true,
-      automaticPresenceSimulation: true,
-    },
-  });
-  return { context, page };
-}
-
-async function signInByEmailedCode(page: Page, email: string): Promise<void> {
-  await page.goto(`${server.baseUrl}/auth/sign-in`);
-  const since = Date.now();
-  await page.getByLabel("Email address").fill(email);
-  await page.getByRole("button", { name: "Email me a code" }).click();
-  const code = await codeFromMailpit(email, since);
-  await page.getByLabel("Sign-in code").fill(code);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.waitForURL(`${server.baseUrl}/auth/passkey`);
-}
-
-async function enrolPasskey(page: Page): Promise<void> {
-  await page.goto(`${server.baseUrl}/auth/passkey`);
-  await page.getByRole("button", { name: "Add a passkey" }).click();
-  await page.waitForURL(`${server.baseUrl}/w`, { timeout: 60_000 });
-}
-
-/** A plain fetch with the page's cookies, so a 404 is read as a status and not as a rendering. */
-async function status(page: Page, path: string): Promise<number> {
-  return page.evaluate(
-    async (url: string) => (await fetch(url, { redirect: "manual" })).status,
-    `${server.baseUrl}${path}`,
-  );
-}
-
-/**
- * The code, out of mailpit's inbox. `since` is the instant the request was made: a second
- * sign-in for the same address would otherwise read the first attempt's code back.
- */
-async function codeFromMailpit(email: string, since: number): Promise<string> {
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    const search = new URL(`${mailpit}/api/v1/search`);
-    search.searchParams.set("query", `to:${email}`);
-    search.searchParams.set("limit", "5");
-    const found = (await (await fetch(search)).json()) as {
-      messages?: { ID: string; Created: string }[];
-    };
-    for (const message of found.messages ?? []) {
-      if (Date.parse(message.Created) + 2_000 < since) continue;
-      const body = (await (
-        await fetch(`${mailpit}/api/v1/message/${message.ID}`)
-      ).json()) as { Text?: string };
-      const code = /\b\d{6}\b/.exec(body.Text ?? "")?.[0];
-      if (code !== undefined) return code;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 500));
-  }
-  throw new Error(`no sign-in code reached ${email} within 30s; is mailpit up?`);
-}
-
-/**
- * Every message to `email` whose body carries `link`, out of mailpit's inbox. The link is the
- * approval's own id, so a message from an earlier run of this suite cannot be one of them —
- * which is what makes the count an assertion rather than a sighting.
- */
-async function noticesFromMailpit(email: string, link: string): Promise<{ subject: string }[]> {
-  const search = new URL(`${mailpit}/api/v1/search`);
-  search.searchParams.set("query", `to:${email}`);
-  search.searchParams.set("limit", "100");
-  const found = (await (await fetch(search)).json()) as {
-    messages?: { ID: string; Subject: string }[];
-  };
-  const carrying: { subject: string }[] = [];
-  for (const message of found.messages ?? []) {
-    const body = (await (await fetch(`${mailpit}/api/v1/message/${message.ID}`)).json()) as {
-      Text?: string;
-    };
-    if ((body.Text ?? "").includes(link)) carrying.push({ subject: message.Subject });
-  }
-  return carrying;
-}
-
-/** Seeded in SQL because there is no sign-up: a user exists because an admin put them there. */
-async function seedMember(): Promise<void> {
-  await pool.query(
-    `INSERT INTO hf_user (id, name, email, email_verified, role)
-     VALUES ($1, 'Demo Member', $2, true, 'member')
-     ON CONFLICT (email) DO UPDATE SET role = 'member', banned = NULL`,
-    [randomUUID(), MEMBER_EMAIL],
-  );
-  await pool.query(
-    `DELETE FROM hf_session WHERE user_id IN (SELECT id FROM hf_user WHERE email = ANY($1::text[]))`,
-    [[MEMBER_EMAIL, ADMIN_EMAIL]],
-  );
-  await pool.query(
-    `DELETE FROM hf_passkey WHERE user_id IN (SELECT id FROM hf_user WHERE email = ANY($1::text[]))`,
-    [[MEMBER_EMAIL, ADMIN_EMAIL]],
-  );
-}
-
-/**
  * One record for the workspace to show, seeded rather than collected: the loop that produces
  * these is `tests/contract.test.ts`'s, on a database of its own, and what this suite needs is a
  * row with a name — not a run. The upsert un-archives it so the suite can be run twice.
  */
 async function seedDemoNote(name = DEMO_NOTE_NAME, stage: string | null = null): Promise<string> {
-  const result = await pool.query<{ id: string }>(
+  const result = await harness.pool.query<{ id: string }>(
     `INSERT INTO demo_note (normalized_name, body, stage)
      VALUES ($1, 'A note the workspace suite archives.', $2)
      ON CONFLICT (normalized_name) DO UPDATE SET archived_at = NULL, stage = EXCLUDED.stage
      RETURNING id::text AS id`,
     [name, stage],
   );
-  await pool.query(`DELETE FROM hf_label WHERE record_type = 'demoNote' AND record_id = $1`, [
-    result.rows[0]!.id,
-  ]);
+  await harness.pool.query(
+    `DELETE FROM hf_label WHERE record_type = 'demoNote' AND record_id = $1`,
+    [result.rows[0]!.id],
+  );
   return result.rows[0]!.id;
 }
 
 async function archivedAt(recordId: string): Promise<Date | null> {
-  const result = await pool.query<{ archived_at: Date | null }>(
+  const result = await harness.pool.query<{ archived_at: Date | null }>(
     `SELECT archived_at FROM demo_note WHERE id::text = $1`,
     [recordId],
   );
@@ -463,7 +355,7 @@ interface DraftUnderTest {
  */
 async function twoPendingDrafts(): Promise<{ items: DraftUnderTest[]; stop(): Promise<void> }> {
   // Imported here and not at the top: `defineApp()` reads `HF_BUILD_SHA` when the module is
-  // evaluated, and `loadEnv` only fills the environment in `beforeAll`.
+  // evaluated, and the harness only fills the environment in `beforeAll`.
   const [{ app, recordTables }, flow, workflows, testing] = await Promise.all([
     import("../../src/hyperfixation"),
     import("../../src/flows/draft-demo-outreach"),
@@ -481,7 +373,7 @@ async function twoPendingDrafts(): Promise<{ items: DraftUnderTest[]; stop(): Pr
   await worker.ready();
   try {
     app.attach({
-      pool,
+      pool: harness.pool,
       client: await workflows.getClient({ appName: app.name, databaseUrl, recordTables }),
     });
     return await pendingDrafts(app, flow, workflows, worker);
@@ -499,7 +391,7 @@ async function pendingDrafts(
   workflows: typeof import("@hyperfixation/workflows"),
   worker: ReturnType<typeof import("@hyperfixation/testing").spawnWorker>,
 ): Promise<{ items: DraftUnderTest[]; stop(): Promise<void> }> {
-  await pool.query("UPDATE demo_note SET archived_at = now() WHERE archived_at IS NULL");
+  await harness.pool.query("UPDATE demo_note SET archived_at = now() WHERE archived_at IS NULL");
   const recordIds: string[] = [];
   for (const note of INBOX_NOTES) {
     recordIds.push(await seedInboxNote(note.name, note.score));
@@ -507,12 +399,12 @@ async function pendingDrafts(
       minScore: note.floor,
       limit: 1,
     });
-    await waitForRunStatus(started.runId, "waiting");
+    await waitForRunStatus(harness, started.runId, "waiting");
   }
 
   // The two just written, newest first: a database this suite has already run against keeps
   // whatever a killed worker left waiting, and those rows are nobody's business here.
-  const { rows } = await pool.query<{ id: number; record_id: string }>(
+  const { rows } = await harness.pool.query<{ id: number; record_id: string }>(
     `SELECT id::int AS id, record_id FROM hf_approval
      WHERE status = 'pending' AND record_id = ANY($1::text[]) ORDER BY id DESC LIMIT 2`,
     [recordIds],
@@ -537,7 +429,7 @@ async function pendingDrafts(
 
 /** `stage` is a registered one, so these rows add no column to the board suite above. */
 async function seedInboxNote(normalizedName: string, score: number): Promise<string> {
-  const { rows } = await pool.query<{ id: string }>(
+  const { rows } = await harness.pool.query<{ id: string }>(
     `INSERT INTO demo_note (normalized_name, body, contact_email, score, spec_version, stage)
      VALUES ($1, 'Family roofing contractor, two vans, north side of the city.', $2, $3, 1,
        'scored')
@@ -546,27 +438,11 @@ async function seedInboxNote(normalizedName: string, score: number): Promise<str
     [normalizedName, "owner@acme-roofing.example", score],
   );
   const id = rows[0]!.id;
-  await pool.query(`DELETE FROM hf_label WHERE record_type = 'demoNote' AND record_id = $1`, [id]);
+  await harness.pool.query(
+    `DELETE FROM hf_label WHERE record_type = 'demoNote' AND record_id = $1`,
+    [id],
+  );
   return id;
-}
-
-async function waitForRunStatus(runId: string, status: string): Promise<void> {
-  const deadline = Date.now() + 120_000;
-  for (;;) {
-    const { rows } = await pool.query<{ status: string; error: string | null }>(
-      "SELECT status, error FROM hf_run WHERE run_id = $1",
-      [runId],
-    );
-    if (rows[0]?.status === status) return;
-    if (rows[0]?.status === "failed" || Date.now() > deadline) {
-      throw new Error(`run ${runId} is ${rows[0]?.status}: ${rows[0]?.error ?? "no error"}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-}
-
-function subjectBox(page: Page, approvalId: number) {
-  return page.locator(`[name="edit:${approvalId}:subject"]`);
 }
 
 async function approvalRows(ids: number[]): Promise<
@@ -578,7 +454,7 @@ async function approvalRows(ids: number[]): Promise<
     edited_draft: { subject: string } | null;
   }[]
 > {
-  const { rows } = await pool.query<{
+  const { rows } = await harness.pool.query<{
     id: number;
     status: string;
     batch_id: string | null;
@@ -592,19 +468,8 @@ async function approvalRows(ids: number[]): Promise<
   return rows;
 }
 
-/** The run resumes on its own clock, so the page is asked again until its writes are there. */
-async function reloadUntil(page: Page, path: string, text: string): Promise<void> {
-  const deadline = Date.now() + 120_000;
-  for (;;) {
-    await page.goto(`${server.baseUrl}${path}`);
-    if ((await page.getByText(text).count()) > 0) return;
-    if (Date.now() > deadline) throw new Error(`"${text}" never appeared on ${path}`);
-    await new Promise((resolve) => setTimeout(resolve, 1_000));
-  }
-}
-
 async function factorOf(email: string): Promise<string | undefined> {
-  const result = await pool.query<{ factor: string }>(
+  const result = await harness.pool.query<{ factor: string }>(
     `SELECT s.factor FROM hf_session s JOIN hf_user u ON u.id = s.user_id
      WHERE u.email = $1 ORDER BY s.created_at DESC LIMIT 1`,
     [email],
@@ -613,24 +478,10 @@ async function factorOf(email: string): Promise<string | undefined> {
 }
 
 async function passkeyCount(email: string): Promise<number> {
-  const result = await pool.query<{ count: number }>(
+  const result = await harness.pool.query<{ count: number }>(
     `SELECT count(*)::int AS count FROM hf_passkey p JOIN hf_user u ON u.id = p.user_id
      WHERE u.email = $1`,
     [email],
   );
   return result.rows[0]?.count ?? 0;
-}
-
-/** mailpit's HTTP inbox is its SMTP port plus 7000, per `docker-compose.yml`. */
-function mailpitUrl(smtpUrl: string): string {
-  const url = new URL(smtpUrl);
-  return `http://${url.hostname}:${Number(url.port || 1025) + 7000}`;
-}
-
-function required(name: string): string {
-  const value = process.env[name];
-  if (value === undefined || value === "") {
-    throw new Error(`${name} is unset; copy .env.example to .env and run hf migrate first`);
-  }
-  return value;
 }

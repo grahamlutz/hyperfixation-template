@@ -31,8 +31,10 @@ docker compose -f docker-compose.prod.yml config
 `pnpm test` needs a Postgres. It creates a database per test on the cluster
 `HF_TEST_DATABASE_URL` names and drops it afterwards.
 
-`pnpm test:e2e` is separate and heavier: it drives a real browser through sign-in, passkey
-enrolment and the admin's 404, against this app's own dev compose. It wants `hf up` to have been
+`pnpm test:e2e` is separate and heavier: it drives a real browser against this app's own dev
+compose — `exit-bar.e2e.ts` through sign-in, passkey enrolment, the admin's 404 and the
+workspace, and `demo-loop.e2e.ts` through the demo loop, two approvals with one edit, the mail
+mailpit receives, and a pause and resume over `/api/status`. It wants `hf up` to have been
 run once, plus `pnpm exec playwright install chromium`. The passkey half
 runs on a virtual authenticator inside the browser, so no hardware is involved.
-`HF_E2E_BUILD=1 pnpm test:e2e` runs the same suite against the standalone build a deploy serves.
+`HF_E2E_BUILD=1 pnpm test:e2e` runs the same suites against the standalone build a deploy serves.
