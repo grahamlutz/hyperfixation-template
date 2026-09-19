@@ -1,46 +1,14 @@
-# TEMPORARY — delete this file at the first `@hyperfixation/*` publish.
-#
-# This is not a monorepo; the only reason pnpm needs a settings file here is `overrides`, which
-# pnpm 12 reads from `pnpm-workspace.yaml` and no longer from `package.json`.
-#
-# `package.json` declares the real, future dependency: `"@hyperfixation/core": "^0.0.0"` and so
-# on, which is what an app gets once the packages are on npm. None of them are published yet,
-# so every install would 404. These overrides point each one at the sibling `hyperfixation-core`
-# checkout instead, which is the Phase 1 development layout:
-#
-#   Code/
-#     hyperfixation/            (hyperfixation-core, the packages)
-#     hyperfixation-template/   (this repo)
-#
-# They resolve to the packages' built `dist/`, so `pnpm -r build` in hyperfixation-core has to
-# have run. Track E (`hf new`) and the publish step own removing this: once the packages
-# resolve from the registry, deleting this file is the whole change.
+# This is not a monorepo. The file survives for two pnpm settings that pnpm 12 reads from here
+# and no longer from `package.json`; the `@hyperfixation/*` link overrides it used to carry are
+# gone now that the packages resolve from npm. `hf new` copies this file into every app, which
+# is why both settings belong here rather than in a developer's own config.
 
-overrides:
-  "@hyperfixation/admin": "link:../hyperfixation/packages/admin"
-  "@hyperfixation/ai": "link:../hyperfixation/packages/ai"
-  "@hyperfixation/auth": "link:../hyperfixation/packages/auth"
-  "@hyperfixation/core": "link:../hyperfixation/packages/core"
-  "@hyperfixation/db": "link:../hyperfixation/packages/db"
-  "@hyperfixation/eslint-config": "link:../hyperfixation/packages/eslint-config"
-  "@hyperfixation/testing": "link:../hyperfixation/packages/testing"
-  "@hyperfixation/workflows": "link:../hyperfixation/packages/workflows"
-
-  # Same bridge, one level down. Two checkouts mean two pnpm stores, so `drizzle-orm@0.45.2`
-  # installed here and `drizzle-orm@0.45.2` installed there are two physically distinct copies
-  # with two distinct declarations of `SQL`'s private fields — and a flow's `db.execute(sql...)`
-  # stops typechecking against a step handle that came from the other one. Published, both
-  # resolve from one store at one version and the problem does not arise.
-  "drizzle-orm": "link:../hyperfixation/packages/db/node_modules/drizzle-orm"
-  # The SDK is pinned to one exact version across hyperfixation-core so that every package
-  # links the same copy and `DBOS` is one object in a process. That has to hold across the
-  # bridge too, or the worker fixture would patch a different `DBOS.shutdown` than the one
-  # `startWorker()` calls.
-  "@dbos-inc/dbos-sdk": "link:../hyperfixation/packages/workflows/node_modules/@dbos-inc/dbos-sdk"
-  # And zod, for the same reason as `drizzle-orm`: `approvals.decide` calls `safeParse` on the
-  # schema an app registered, and two copies of zod are two unrelated `ZodType` declarations —
-  # `ApprovalTypeDefinition.schema` stops accepting this app's own schema.
-  "zod": "link:../hyperfixation/packages/workflows/node_modules/zod"
+# pnpm 12 refuses any version published less than 24 hours ago. That is a sensible default
+# against a compromised release of someone else's package and a wrong one for our own: a core
+# bump PR opens minutes after the publish it bumps to, and without this it cannot install for a
+# day. Scoped to `@hyperfixation/*` only — every third-party package keeps the full wait.
+minimumReleaseAgeExclude:
+  - "@hyperfixation/*"
 
 # vitest pulls esbuild; the same allowance hyperfixation-core makes.
 allowBuilds:

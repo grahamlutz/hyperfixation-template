@@ -79,6 +79,11 @@ launch in one process, and the advisory lock is released by process death and no
   resolver error and ESLint names the reason.
 - **Do not archive a record from inside a run.** `records.archive()` is a control-plane
   operation and throws `ControlPlaneInWorkflow`. A flow that wants one creates a task.
+- **Do not drop `--webpack` from `next dev` or `next build`.** Turbopack gives each page entry
+  its own copy of `src/flows/*`, while `serverExternalPackages` keeps the registry inside
+  `@hyperfixation/workflows` a single module — so the second page registers the same flow again
+  and the build dies on `DuplicateFlow`. It only surfaces when one worker collects two pages,
+  which makes it look machine-dependent; reproduce it anywhere with `experimental.cpus: 1`.
 - **Do not add a var to one compose service.** `REQUIRED_ENV`, both `environment:` blocks and
   `.env.example` move together, and `compose-envs.test.ts` fails if they do not.
 - **Do not declare `dedupes: true` on a channel whose provider does not dedupe on the

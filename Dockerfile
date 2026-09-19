@@ -2,7 +2,7 @@
 # gives them and by the `HF_PROCESS` they run under — which is what makes "the worker is on the
 # same commit as the web" true by construction rather than by deployment discipline.
 
-FROM node:25-alpine AS base
+FROM node:22-alpine AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 RUN corepack enable

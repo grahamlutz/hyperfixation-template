@@ -6,10 +6,11 @@
   "engines": {
     "node": ">=22"
   },
-  "//dev": "TEMPORARY, and paired with pnpm-workspace.yaml — delete `--webpack` at the first @hyperfixation/* publish. Next 16's dev is Turbopack, which cannot resolve a `link:`-ed package outside the project root; the overrides that link the sibling core checkout are what produce that shape, and deleting them closes this too.",
+  "//typescript": "`typescript` is held at 5.9, not stale: `@hyperfixation/eslint-config` brings typescript-eslint 8, whose peer range is `>=4.8.4 <6.1.0`. Past that, `pnpm lint` does not warn — it refuses to start. Raise it when core raises typescript-eslint, not before.",
+  "//webpack": "Every `next` invocation carries `--webpack`, here and in CI and tests/e2e/server.ts. Turbopack copies `src/flows/*` per page entry while the registry inside `@hyperfixation/workflows` stays one module, so a second page re-registers a flow and the build dies on `DuplicateFlow`. See CLAUDE.md, What not to do.",
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "node .next/standalone/server.js",
     "worker": "node --import tsx worker.ts",
     "migrate": "node --import tsx migrate.ts",
@@ -23,12 +24,12 @@
   "dependencies": {
     "@better-auth/passkey": "1.7.5",
     "@dbos-inc/dbos-sdk": "4.27.6",
-    "@hyperfixation/admin": "^0.0.0",
-    "@hyperfixation/ai": "^0.0.0",
-    "@hyperfixation/auth": "^0.0.0",
-    "@hyperfixation/core": "^0.0.0",
-    "@hyperfixation/db": "^0.0.0",
-    "@hyperfixation/workflows": "^0.0.0",
+    "@hyperfixation/admin": "^0.1.0",
+    "@hyperfixation/ai": "^0.1.0",
+    "@hyperfixation/auth": "^0.1.0",
+    "@hyperfixation/core": "^0.1.0",
+    "@hyperfixation/db": "^0.1.0",
+    "@hyperfixation/workflows": "^0.1.0",
     "@sentry/nextjs": "10.75.0",
     "@sentry/node": "10.75.0",
     "better-auth": "1.7.5",
@@ -42,8 +43,8 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@hyperfixation/eslint-config": "^0.0.0",
-    "@hyperfixation/testing": "^0.0.0",
+    "@hyperfixation/eslint-config": "^0.1.0",
+    "@hyperfixation/testing": "^0.1.0",
     "@turbo/gen": "^2.10.13",
     "@types/node": "^26.5.1",
     "@types/nodemailer": "^7.0.0",
@@ -54,7 +55,7 @@
     "eslint": "^10.10.0",
     "playwright": "^1.63.0",
     "turbo": "^2.1.0",
-    "typescript": "^7.0.2",
+    "typescript": "~5.9.3",
     "vitest": "^5.0.1",
     "yaml": "^2.9.1"
   }
