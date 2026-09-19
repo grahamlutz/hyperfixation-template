@@ -6,6 +6,7 @@
   "engines": {
     "node": ">=22"
   },
+  "//typescript": "`typescript` is held at 5.9, not stale: `@hyperfixation/eslint-config` brings typescript-eslint 8, whose peer range is `>=4.8.4 <6.1.0`. Past that, `pnpm lint` does not warn — it refuses to start. Raise it when core raises typescript-eslint, not before.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -53,7 +54,7 @@
     "eslint": "^10.10.0",
     "playwright": "^1.63.0",
     "turbo": "^2.1.0",
-    "typescript": "^7.0.2",
+    "typescript": "~5.9.3",
     "vitest": "^5.0.1",
     "yaml": "^2.9.1"
   }
