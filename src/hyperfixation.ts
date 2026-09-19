@@ -40,7 +40,20 @@ export const app = defineApp({
     draftDemoOutreachFlow,
   ],
   records: [
-    { table: "demo_note", recordType: "demoNote" },
+    {
+      table: "demo_note",
+      recordType: "demoNote",
+      title: "Demo notes",
+      displayColumn: "normalized_name",
+      // The board's columns, in board order, over the mixin's `stage`. Nothing in the demo loop
+      // writes one, so every card sits in the board's "Other" column until a human moves it.
+      stages: [
+        { name: "new", title: "New" },
+        { name: "scored", title: "Scored" },
+        { name: "drafted", title: "Drafted" },
+        { name: "sent", title: "Sent" },
+      ],
+    },
   ],
   sources: [demoSource],
   resolvers: [demoResolver],
