@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import type { DBOSClient } from "@dbos-inc/dbos-sdk";
-import type { InboxItem } from "@hyperfixation/core/workspace";
+import { draftFields, type InboxItem, type WorkspaceDecideOptions } from "@hyperfixation/core/workspace";
 import { createTestDatabase, spawnWorker, type TestDatabase } from "@hyperfixation/testing";
 import { getClient, resetClient } from "@hyperfixation/workflows";
 import { Pool } from "pg";
@@ -235,3 +235,109 @@ interface ApprovalRow {
   decided_via: string | null;
   edited_draft: { to: string; subject: string; body: string } | null;
 }
+
+/**
+ * The same parser, over drafts no flow of this app produces — because `decide()` is handed
+ * whatever an approval type's payload happens to be, and a `DraftField.path` is a description
+ * of where a value came from rather than a key that can be trusted to lead back to it.
+ *
+ * No database: what is in question is which fields an edit may be taken from at all, and the
+ * workspace is stubbed so that the call `decideFromForm` would make is the assertion.
+ */
+describe("the form's edits, over a hostile draft", () => {
+  it("never walks into the prototype chain, and writes no edit for a path that names it", async () => {
+    const item = itemFor({ "__proto__.polluted": "before" });
+    const { deps, calls } = stub(item);
+    const posted = form(item, { "__proto__.polluted": "PWNED" });
+
+    const outcome = await decideFromForm(deps, posted);
+
+    expect(outcome.error).toBeUndefined();
+    expect(({} as { polluted?: string }).polluted).toBeUndefined();
+    expect(Object.prototype).not.toHaveProperty("polluted");
+    // The path resolves to nothing by own-property walking, so it is not an editable field and
+    // the batch carries no edit at all.
+    expect(calls[0]?.edits).toBeUndefined();
+  });
+
+  it("edits neither of two fields that flatten to the same path", async () => {
+    const item = itemFor({ "a.b": "one", a: { b: "two" } });
+    const { deps, calls } = stub(item);
+
+    const outcome = await decideFromForm(deps, form(item, { "a.b": "typed" }));
+
+    expect(outcome.error).toBeUndefined();
+    expect(calls[0]?.edits).toBeUndefined();
+  });
+
+  it("takes an edit where the path is unique and leads to the value it was read from", async () => {
+    const item = itemFor({ subject: "before", nested: { body: "keep" } });
+    const { deps, calls } = stub(item);
+
+    await decideFromForm(deps, form(item, { subject: "after" }));
+
+    expect(calls[0]?.edits).toEqual({
+      [item.approvalId]: { subject: "after", nested: { body: "keep" } },
+    });
+  });
+
+  it("does not call a stored CRLF an edit, but still takes a real one", async () => {
+    const item = itemFor({ body: "first\r\nsecond" });
+    const { deps, calls } = stub(item);
+
+    // What a text area posts back untouched: the same text, its breaks normalised by HTML.
+    await decideFromForm(deps, form(item, { body: "first\r\nsecond" }));
+    expect(calls[0]?.edits).toBeUndefined();
+
+    await decideFromForm(deps, form(item, { body: "first\r\nthird" }));
+    expect(calls[1]?.edits).toEqual({ [item.approvalId]: { body: "first\nthird" } });
+  });
+
+  function itemFor(draft: Record<string, unknown>): InboxItem {
+    return {
+      approvalId: 1,
+      runId: "run-1",
+      flow: "draftDemoOutreach",
+      key: "approve:1",
+      type: "demoDraft",
+      recordType: "demoNote",
+      recordId: "1",
+      recordTitle: null,
+      assigneeId: null,
+      createdAt: new Date("2026-09-19T10:00:00Z"),
+      expiresAt: null,
+      draft,
+      fields: draftFields(draft),
+      editable: true,
+    };
+  }
+
+  function stub(item: InboxItem): { deps: DecideDeps; calls: WorkspaceDecideOptions[] } {
+    const calls: WorkspaceDecideOptions[] = [];
+    return {
+      calls,
+      deps: {
+        actor: ACTOR,
+        workspace: {
+          inbox: () => Promise.resolve({ items: [item], mine: 0, unassigned: 1 }),
+          decide: (options) => {
+            calls.push(options);
+            return Promise.resolve({ replayed: false, decided: [], reattempted: [], batchId: null });
+          },
+        },
+      },
+    };
+  }
+
+  /** Every field posted back as the page would have rendered it, with these values replaced. */
+  function form(item: InboxItem, typed: Record<string, string>): FormData {
+    const formData = new FormData();
+    formData.set("decision", "approved");
+    formData.set("decisionKey", "stub-key");
+    formData.append("ids", String(item.approvalId));
+    for (const field of item.fields) {
+      formData.set(editFieldName(item.approvalId, field.path), typed[field.path] ?? field.value);
+    }
+    return formData;
+  }
+});

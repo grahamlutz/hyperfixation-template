@@ -119,6 +119,37 @@ function keyOf(formData: FormData): string {
 }
 
 /**
+ * Which of an item's fields may be offered as a text box, and are therefore the only ones an
+ * edit is ever taken from.
+ *
+ * A `DraftField.path` is a description of where a value came from, not a key: `draftFields`
+ * joins object keys with `.` without escaping them, so two different places in a draft can
+ * flatten to the same path and a path can name a place that does not exist. Both are refused
+ * here rather than guessed at, because the guess would be an edit written to the wrong value.
+ *
+ * A path is offered only when it is the only field with that path, and when walking it through
+ * the draft's own properties — never the prototype chain, and never through `__proto__`,
+ * `constructor` or `prototype` — arrives at an existing scalar. So a draft holding the literal
+ * key `"a.b"` flattens to a path that resolves to nothing and is shown read-only, which is the
+ * intended answer: unreachable is safer than approximately reachable. A bare scalar draft is
+ * read-only for the same reason — it has no slot to write into.
+ */
+export function editablePaths(item: InboxItem): Set<string> {
+  if (!item.editable) return new Set();
+  const counts = new Map<string, number>();
+  for (const field of item.fields) {
+    counts.set(field.path, (counts.get(field.path) ?? 0) + 1);
+  }
+  const paths = new Set<string>();
+  for (const field of item.fields) {
+    if (counts.get(field.path) !== 1) continue;
+    if (locate(item.draft, field.path) === undefined) continue;
+    paths.add(field.path);
+  }
+  return paths;
+}
+
+/**
  * The item's draft with whatever the human changed written back onto it, or `undefined` when
  * they changed nothing — an unchanged draft must not be posted as an edit, because an edit is
  * a new `edited_draft` row and a re-parse of text this app already parsed.
@@ -128,45 +159,69 @@ function keyOf(formData: FormData): string {
  * what the type's schema is held to parse.
  */
 function editOf(item: InboxItem, formData: FormData): unknown {
-  let draft = structuredClone(item.draft);
+  const editable = editablePaths(item);
+  if (editable.size === 0) return undefined;
+
+  const draft = structuredClone(item.draft);
   let changed = false;
   for (const field of item.fields) {
+    if (!editable.has(field.path)) continue;
     const raw = formData.get(editFieldName(item.approvalId, field.path));
     if (typeof raw !== "string") continue;
-    const posted = unwrapLines(raw);
-    if (posted === field.value) continue;
-    draft = setAtPath(draft, field.path, posted);
+    const posted = oneLineEnding(raw);
+    if (posted === oneLineEnding(field.value)) continue;
+    // Located again on the copy: the same walk, over the object about to be written.
+    const slot = locate(draft, field.path);
+    if (slot === undefined) continue;
+    slot.container[slot.key] = posted;
     changed = true;
   }
   return changed ? draft : undefined;
 }
 
 /**
- * A form posts a text area's line breaks as CRLF whatever was in it — that is HTML's own
- * normalisation, not something the human typed. Undone here, or every multi-line draft that
- * nobody touched comes back as an edit of itself.
+ * Line endings, as `\n`, on both sides of the comparison.
+ *
+ * A form posts a text area's breaks as CRLF whatever was in it — HTML's own normalisation, not
+ * something the human typed — so a stored draft holding CRLF would otherwise come back as an
+ * edit of itself. What this does **not** preserve is a stored CR: a field whose value really
+ * did hold `\r\n` and which the human then edits is written back with `\n`, because there is
+ * no way to tell the browser's CRLF from theirs. A value holding any break is rendered in a
+ * text area for this reason (`inbox.tsx`); a single-line input strips them outright.
  */
-function unwrapLines(value: string): string {
-  return value.replace(/\r\n/g, "\n");
+function oneLineEnding(value: string): string {
+  return value.replace(/\r\n?/g, "\n");
 }
 
-/** The inverse of a `DraftField.path`: `contacts[0].email` back onto the draft it came from. */
-function setAtPath(draft: unknown, path: string, value: string): unknown {
-  // A scalar draft has no key; `draftFields` calls it `value` and the whole draft is it.
-  if (typeof draft !== "object" || draft === null) return value;
+/** The own-property slot a `DraftField.path` names, or `undefined` when it names none. */
+interface Slot {
+  container: Record<string, unknown>;
+  key: string;
+}
 
+/** Never walked through: each is a way to reach an object no draft owns. */
+const UNSAFE_TOKENS = new Set(["__proto__", "constructor", "prototype"]);
+
+function locate(draft: unknown, path: string): Slot | undefined {
   const tokens = tokensOf(path);
-  const last = tokens.pop();
-  if (last === undefined) return draft;
+  if (tokens.length === 0 || tokens.some((token) => UNSAFE_TOKENS.has(token))) return undefined;
 
+  const key = tokens[tokens.length - 1]!;
   let node: unknown = draft;
-  for (const token of tokens) {
-    if (typeof node !== "object" || node === null) return draft;
+  for (const token of tokens.slice(0, -1)) {
+    if (!ownsKey(node, token)) return undefined;
     node = (node as Record<string, unknown>)[token];
   }
-  if (typeof node !== "object" || node === null) return draft;
-  (node as Record<string, unknown>)[last] = value;
-  return draft;
+  if (!ownsKey(node, key)) return undefined;
+  const value = (node as Record<string, unknown>)[key];
+  // A container is not a leaf: `draftFields` gives containers no row of their own, so a path
+  // that lands on one is a path that named something else.
+  if (typeof value === "object" && value !== null) return undefined;
+  return { container: node as Record<string, unknown>, key };
+}
+
+function ownsKey(node: unknown, token: string): boolean {
+  return typeof node === "object" && node !== null && Object.hasOwn(node, token);
 }
 
 function tokensOf(path: string): string[] {

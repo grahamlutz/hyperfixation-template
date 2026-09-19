@@ -85,6 +85,28 @@ describe("the approval inbox", () => {
     expect(html).toContain("&lt;img src=x");
   });
 
+  it("shows a field no edit could be written back to as text, not as a box", () => {
+    // Two keys that flatten to the same path, and a key that walks into the prototype chain:
+    // neither names a slot an edit can be written to, so neither is offered as one.
+    const draft = { "a.b": "one", a: { b: "two" }, "__proto__.polluted": "three" };
+    const html = render([item({ draft, fields: draftFields(draft) })]);
+
+    expect(html).not.toContain('name="edit:12:a.b"');
+    expect(html).not.toContain("__proto__");
+    expect(html).toContain("one");
+    expect(html).toContain("two");
+  });
+
+  it("puts a value holding a line break in a text area, whatever its length", () => {
+    const draft = { subject: "short\rbreak" };
+    const html = render([item({ draft, fields: draftFields(draft) })]);
+
+    // A single-line input strips CR and LF from its value, and a stripped value posts back as
+    // an edit nobody made.
+    expect(html).toContain("<textarea");
+    expect(html).not.toContain('type="text" name="edit:12:subject"');
+  });
+
   it("shows a refused batch as text rather than as a failure", () => {
     const html = render([item()], "ApprovalBatchRefused: 12 recipient is not in the contact allowlist");
 

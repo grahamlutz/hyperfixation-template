@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { approvalPath, type InboxItem, type InboxView } from "@hyperfixation/core/workspace";
-import { editFieldName } from "./decide-form";
+import { editablePaths, editFieldName } from "./decide-form";
 import { DecisionKey } from "./decision-key";
 import { MUTED, when, type FormAction } from "./views";
 
@@ -142,26 +142,7 @@ function ApprovalRow({ item, selectable }: { item: InboxItem; selectable: boolea
           </>
         ) : null}
       </p>
-      {item.editable ? (
-        item.fields.map((field) => (
-          <p key={field.path}>
-            <label>
-              <span style={MUTED}>{field.label}</span>
-              <br />
-              <Editor name={editFieldName(item.approvalId, field.path)} value={field.value} />
-            </label>
-          </p>
-        ))
-      ) : (
-        <dl>
-          {item.fields.map((field) => (
-            <div key={field.path}>
-              <dt style={MUTED}>{field.label}</dt>
-              <dd>{field.value}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
+      <DraftRows item={item} />
       {item.editable ? null : (
         <p style={MUTED}>This type registers no schema, so its draft cannot be edited here.</p>
       )}
@@ -169,8 +150,43 @@ function ApprovalRow({ item, selectable }: { item: InboxItem; selectable: boolea
   );
 }
 
+/**
+ * A field is a box only when an edit typed into it would be written back to the value it was
+ * read from — `editablePaths` is the one answer to that, and the form parser takes edits from
+ * exactly the same set. Anything else is shown as text, escaped like the rest of the draft.
+ *
+ * The key carries the index because two fields can flatten to the same path; that collision is
+ * also why neither of them is editable.
+ */
+function DraftRows({ item }: { item: InboxItem }) {
+  const editable = editablePaths(item);
+  return (
+    <>
+      {item.fields.map((field, index) => (
+        <p key={`${index}:${field.path}`}>
+          {editable.has(field.path) ? (
+            <label>
+              <span style={MUTED}>{field.label}</span>
+              <br />
+              <Editor name={editFieldName(item.approvalId, field.path)} value={field.value} />
+            </label>
+          ) : (
+            <>
+              <span style={MUTED}>{field.label}</span>
+              <br />
+              {field.value}
+            </>
+          )}
+        </p>
+      ))}
+    </>
+  );
+}
+
 function Editor({ name, value }: { name: string; value: string }) {
-  return value.length > TEXTAREA_OVER || value.includes("\n") ? (
+  // Any line ending at all, not only `\n`: a single-line input strips CR and LF from its value
+  // outright, and a stripped value posts back as an edit nobody made.
+  return value.length > TEXTAREA_OVER || /[\r\n]/.test(value) ? (
     <textarea name={name} defaultValue={value} rows={6} style={FIELD} />
   ) : (
     <input type="text" name={name} defaultValue={value} style={FIELD} />
