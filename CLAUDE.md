@@ -47,11 +47,12 @@ restart just as well as four that ran the loop.
 | `fixtures/` | One per flow, named for the flow. The contract suite needs it |
 | `fixtures/llm/` | `<promptName>.json`, served whenever no provider key is set |
 | `fixtures/sources/` | What the demo source streams, in place of a real API |
-| `tests/` | `contract` (the loop once, end to end), `flow-restart` (every flow twice), `draft-approval` (past the gate), `demo-draft-schema` (the validators alone), `records-archive` (the mixin), `workspace-render` (model output rendered as text), `inbox-render` (the same claim about the boxes that edit it), `inbox-decide` (one submission, one batch, one replay key), `board-render` (the board's columns, in the record type's order), `workspace-actor` (the session as an actor), `compose-envs` (the env contract) |
+| `tests/` | `contract` (the loop once, end to end), `flow-restart` (every flow twice), `draft-approval` (past the gate), `demo-draft-schema` (the validators alone), `records-archive` (the mixin), `workspace-render` (model output rendered as text), `inbox-render` (the same claim about the boxes that edit it), `inbox-decide` (one submission, one batch, one replay key), `board-render` (the board's columns, in the record type's order), `workspace-actor` (the session as an actor), `compose-envs` (the env contract), `instrumentation` (the web's telemetry gate) |
 | `app/` | The two catch-all routes, `/auth/*`, and the two API mounts. Almost nothing per-app |
 | `app/(workspace)/w/[[...path]]/` | The workspace: `page.tsx` renders what `app.workspace.route()` resolved, `views.tsx` is the screens, `board.tsx` the read-only pipeline board, `actions.ts` the label and the archive |
 | `…/inbox.tsx`, `inbox-actions.ts` | The approval inbox and the one batch decision it posts. `decide-form.ts` is that form turned into a single `decide()` call — ids, edits, the replay key — and `decision-key.tsx` is the key itself, minted in the browser once per mount |
 | `worker.ts` / `migrate.ts` | The worker — which also drives `app.schedules` — and the one-shot migrator |
+| `instrumentation.ts` | The web's telemetry: Langfuse's span processor when all three `LANGFUSE_*` are set, nothing when any is empty. The worker registers the same from `worker.ts` |
 
 ## Working here
 
