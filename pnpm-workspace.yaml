@@ -44,4 +44,8 @@ overrides:
 
 # vitest pulls esbuild; the same allowance hyperfixation-core makes.
 allowBuilds:
+  # `false`, and it has to be answered: `@sentry/nextjs` reaches `@sentry/cli` through the
+  # webpack plugin, whose postinstall downloads a binary. Nothing here uploads source maps, and
+  # pnpm fails an install outright on a build script no one has decided about.
+  "@sentry/cli": false
   esbuild: true
