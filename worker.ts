@@ -7,6 +7,7 @@ import path from "node:path";
 import { startWorker } from "@hyperfixation/workflows";
 import { requireEnv } from "./src/env";
 import { app, recordTables } from "./src/hyperfixation";
+import { approvalNotifier } from "./src/notify";
 
 /**
  * The worker container's entrypoint, and the only process in the app that reaches
@@ -32,6 +33,8 @@ const worker = await startWorker({
   databaseUrl: requireEnv("DATABASE_URL"),
   recordTables,
   appMigrationsDir: APP_MIGRATIONS_DIR,
+  // Every gate's notification, since no flow passes a `notify` of its own.
+  approvalNotifier: approvalNotifier(),
 });
 
 // The worker's control plane: the pool `startWorker()` built and its own `DBOSClient`. The web
