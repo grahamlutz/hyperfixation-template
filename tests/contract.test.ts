@@ -27,9 +27,9 @@ import { app, recordTables } from "../src/hyperfixation";
  *
  * Nothing here has a provider key or a mail server. `src/llm.ts` falls back to `fixtures/llm/`
  * when no key at all is set, and `src/channels/email.ts` falls back to nodemailer's
- * `jsonTransport` when `SMTP_URL` is unset — the two conditions CI runs under, asserted below
- * rather than assumed, because a key leaking into the environment would make this suite bill a
- * real provider and send a real email.
+ * `jsonTransport` when `SMTP_URL` is unset — the two conditions CI runs under. A key in the
+ * environment would make this suite bill a real provider and send a real email, so under CI it
+ * fails; on a developer's machine it skips with a warning.
  *
  * The restart is deliberately skipped: it is `flow-restart.test.ts`'s assertion over these same
  * four flows, and paying for it twice doubles the suite's runtime for nothing.
@@ -48,7 +48,19 @@ function fixtureFor(name: string): unknown {
   return JSON.parse(readFileSync(new URL(`${name}.json`, FIXTURES), "utf8")) as unknown;
 }
 
-describe("the demo loop", () => {
+// The two fallbacks this suite runs on: no provider key, no SMTP_URL. Outside CI a developer's
+// exported key skips the suite, with a warning, rather than locking them out of `pnpm test`.
+const leaked = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SMTP_URL"].filter(
+  (name) => (process.env[name] ?? "") !== "",
+);
+const skipLocally = leaked.length > 0 && !process.env.CI;
+if (skipLocally) {
+  console.warn(
+    `tests/contract.test.ts skipped: ${leaked.join(", ")} set; unset to run the demo loop on fixtures`,
+  );
+}
+
+describe.skipIf(skipLocally)("the demo loop", () => {
   let database: TestDatabase;
   let pool: Pool;
   let client: DBOSClient;
@@ -56,18 +68,13 @@ describe("the demo loop", () => {
   let noteId: string;
 
   beforeAll(async () => {
-    // The two fallbacks this suite runs on. A key or an SMTP server in the environment would
-    // not fail anything below — it would quietly bill a provider and mail a stranger. Loud,
-    // because a suite that skipped itself here is one that stops covering the loop the day
-    // someone exports a key into their shell.
-    for (const name of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "SMTP_URL"]) {
-      const value = process.env[name];
-      if (value !== undefined && value !== "") {
-        throw new Error(
-          `${name} is set. tests/contract.test.ts runs the whole loop on fixtures and a real ` +
-            `provider or mail server would be billed and delivered to; unset it for pnpm test`,
-        );
-      }
+    // In CI a leaked key must fail the suite, not skip it: the exit bar counts on this loop
+    // running on fixtures there.
+    if (leaked.length > 0) {
+      throw new Error(
+        `${leaked.join(", ")} set in CI. tests/contract.test.ts runs the whole loop on fixtures; ` +
+          `a real provider or mail server would be billed and delivered to`,
+      );
     }
 
     database = await createTestDatabase({
