@@ -13,6 +13,11 @@ import path from "node:path";
 import { startWorker } from "@hyperfixation/workflows";
 import { runWorkerModule } from "@hyperfixation/testing/worker";
 import { app, recordTables } from "../src/hyperfixation";
+import { approvalNotifier } from "../src/notify";
+
+// The notifier's link origin. `pnpm test` serves nothing, so any well-formed origin does; the
+// e2e's own `APP_URL` is already in the environment this process inherits, and wins.
+if ((process.env.APP_URL ?? "") === "") process.env.APP_URL = "http://localhost:3000";
 
 await runWorkerModule({
   start: async ({ appName, databaseUrl }) => {
@@ -21,6 +26,7 @@ await runWorkerModule({
       databaseUrl,
       recordTables,
       appMigrationsDir: path.resolve(process.cwd(), "drizzle"),
+      approvalNotifier: approvalNotifier(),
     });
     app.attach({ pool: worker.control.pool, client: worker.client });
     return worker;

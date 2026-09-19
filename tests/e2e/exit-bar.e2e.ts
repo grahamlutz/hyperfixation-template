@@ -259,6 +259,35 @@ describe("the approval inbox", () => {
   }, 600_000);
 });
 
+describe("the approval notifier", () => {
+  it("emails the admin a link that opens the approval", async () => {
+    const { context, page } = await openWithAuthenticator();
+    const drafts = await twoPendingDrafts();
+    const opened = drafts.items[0]!;
+    const link = `${server.baseUrl}/w/approvals/${opened.approvalId}`;
+    try {
+      // The gate named no assignee, so the recipients are the admins — the bootstrapped one is
+      // the only row with that role — and the message is `src/notify.ts`'s, sent by the worker
+      // through the same mailpit the sign-in codes go to.
+      const messages = await noticesFromMailpit(ADMIN_EMAIL, link);
+      expect(messages).toHaveLength(1);
+      expect(messages[0]!.subject).toContain("demoDraft");
+
+      // Followed by the human it was addressed to, the link is the one approval's page.
+      await signInByEmailedCode(page, ADMIN_EMAIL);
+      await enrolPasskey(page);
+      await page.goto(link);
+      await page.getByRole("heading", { level: 1, name: "demoDraft" }).waitFor({
+        state: "visible",
+      });
+      await subjectBox(page, opened.approvalId).waitFor({ state: "visible" });
+    } finally {
+      await drafts.stop();
+      await context.close();
+    }
+  }, 600_000);
+});
+
 /**
  * A CTAP2 platform authenticator with a resident key and user verification already satisfied —
  * the shape a laptop's own biometric sensor presents. `automaticPresenceSimulation` is what
@@ -331,6 +360,28 @@ async function codeFromMailpit(email: string, since: number): Promise<string> {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`no sign-in code reached ${email} within 30s; is mailpit up?`);
+}
+
+/**
+ * Every message to `email` whose body carries `link`, out of mailpit's inbox. The link is the
+ * approval's own id, so a message from an earlier run of this suite cannot be one of them —
+ * which is what makes the count an assertion rather than a sighting.
+ */
+async function noticesFromMailpit(email: string, link: string): Promise<{ subject: string }[]> {
+  const search = new URL(`${mailpit}/api/v1/search`);
+  search.searchParams.set("query", `to:${email}`);
+  search.searchParams.set("limit", "100");
+  const found = (await (await fetch(search)).json()) as {
+    messages?: { ID: string; Subject: string }[];
+  };
+  const carrying: { subject: string }[] = [];
+  for (const message of found.messages ?? []) {
+    const body = (await (await fetch(`${mailpit}/api/v1/message/${message.ID}`)).json()) as {
+      Text?: string;
+    };
+    if ((body.Text ?? "").includes(link)) carrying.push({ subject: message.Subject });
+  }
+  return carrying;
 }
 
 /** Seeded in SQL because there is no sign-up: a user exists because an admin put them there. */

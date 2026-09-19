@@ -28,10 +28,11 @@ Every file the demo owns, so the swap is a checklist rather than an `rg`:
 | Flow fixtures | `fixtures/collectDemoSource.json`, `resolveDemoSource.json`, `scoreDemoNotes.json`, `draftDemoOutreach.json` |
 | Prompts, each with its fixture | `prompts/score.md` with `fixtures/llm/score.json`, `prompts/draft.md` with `fixtures/llm/draft.json` |
 | Record table | `src/db/schema/demo.ts` and its `export` in `src/db/schema/index.ts`; `drizzle/0000_demo_note.sql`, `0001_demo_note_mixin.sql`, `0002_demo_note_contact_email.sql` |
-| Tests | `tests/contract.test.ts`, `flow-restart.test.ts`, `draft-approval.test.ts`, `demo-draft-schema.test.ts`, `records-archive.test.ts` |
+| Tests | `tests/contract.test.ts`, `flow-restart.test.ts`, `draft-approval.test.ts`, `demo-draft-schema.test.ts`, `records-archive.test.ts`, `notify.test.ts` |
 
-`src/llm.ts`, `tests/worker-fixture.ts` and `tests/compose-envs.test.ts` are the app's, not the
-demo's, and stay as they are.
+`src/llm.ts`, `src/notify.ts`, `worker.ts` and `tests/worker-fixture.ts` are the app's, not the
+demo's, and stay as they are: the notifier is wired to the worker once and applies to every gate,
+whatever flow opens it. So is `tests/compose-envs.test.ts`.
 
 ## Do it in this order
 
@@ -124,6 +125,9 @@ Delete, in one commit:
 - `tests/draft-approval.test.ts`, repointed at the app's own approval and channel rather than
   deleted: the restart harness never decides an approval, so nothing else covers the half of a
   flow that runs after the gate — `ActionUncertain` in particular
+- `tests/notify.test.ts`, repointed at a flow of this app's that waits for an approval: what it
+  asserts — the recipients, one message, the link — is the app's notifier, and only the flow it
+  opens the gate with is the demo's
 - `tests/records-archive.test.ts`, repointed at a real record type rather than deleted: it is
   what catches a record table that never adopted `hfRecordColumns()`, which fails as a `42703`
   from `records.archive()` and in no other suite
