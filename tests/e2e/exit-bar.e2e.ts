@@ -36,8 +36,18 @@ import {
 const DEMO_NOTE_NAME = "e2e archive target";
 const BOARD_NOTE_NAME = "e2e board card";
 const BOARD_ARCHIVED_NAME = "e2e board archived card";
+/** Long past, so the admin's edit cannot touch what any gate on this database reads. */
+const BUDGET_PERIOD = "1999-01";
 
 let harness: Harness;
+
+async function budgetOf(period: string): Promise<string | undefined> {
+  const { rows } = await harness.pool.query<{ budget: string }>(
+    "SELECT budget_usd::text AS budget FROM hf_budget_period WHERE period = $1",
+    [period],
+  );
+  return rows[0]?.budget;
+}
 
 beforeAll(async () => {
   harness = await startHarness();
@@ -108,6 +118,29 @@ describe("the Phase 1 exit bar", () => {
 
       // A resource the admin does not serve answers exactly as a refusal does.
       expect(await status(harness, page, "/admin/widgets")).toBe(404);
+
+      // The one editable thing in the admin, over a period of its own: editing a live one would
+      // change what the demo loop's gates may spend on this same database.
+      await harness.pool.query(
+        "INSERT INTO hf_budget_period (period, budget_usd, spent_usd) VALUES ($1, '7', '1.25')",
+        [BUDGET_PERIOD],
+      );
+      try {
+        await page.goto(`${harness.baseUrl}/admin/budget-periods/${BUDGET_PERIOD}`);
+        await page.getByText(`${BUDGET_PERIOD} — spent 1.2500 of 7.0000`).waitFor();
+
+        await page.getByLabel("Budget (USD)").fill("-1");
+        await page.getByRole("button", { name: "Set budget" }).click();
+        await page.getByRole("alert").waitFor();
+        expect(await budgetOf(BUDGET_PERIOD)).toBe("7.0000");
+
+        await page.getByLabel("Budget (USD)").fill("42.5");
+        await page.getByRole("button", { name: "Set budget" }).click();
+        await page.getByText(`${BUDGET_PERIOD} — spent 1.2500 of 42.5000`).waitFor();
+        expect(await budgetOf(BUDGET_PERIOD)).toBe("42.5000");
+      } finally {
+        await harness.pool.query("DELETE FROM hf_budget_period WHERE period = $1", [BUDGET_PERIOD]);
+      }
     } finally {
       await context.close();
     }
