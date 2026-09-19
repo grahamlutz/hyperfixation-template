@@ -117,6 +117,40 @@ describe("the approval notifier", () => {
     expect(sent[0]!.to).toEqual([ASSIGNEE.email]);
   });
 
+  it("leaves out an admin whose ban is in force", async () => {
+    await ban(ADMINS[0]!, null);
+    try {
+      const sent = await notify(noticeOf(approval));
+
+      expect(sent[0]!.to).toEqual([ADMINS[1]!]);
+    } finally {
+      await unban(ADMINS[0]!);
+    }
+  });
+
+  it("keeps an admin whose ban has already expired", async () => {
+    await ban(ADMINS[0]!, new Date(Date.now() - 60_000));
+    try {
+      const sent = await notify(noticeOf(approval));
+
+      expect(sent[0]!.to).toEqual(ADMINS);
+    } finally {
+      await unban(ADMINS[0]!);
+    }
+  });
+
+  it("falls through to the admins when the assignee is banned", async () => {
+    await ban(ASSIGNEE.id, null);
+    try {
+      const sent = await notify(noticeOf({ ...approval, assignee_id: ASSIGNEE.id }));
+
+      expect(sent).toHaveLength(1);
+      expect(sent[0]!.to).toEqual(ADMINS);
+    } finally {
+      await unban(ASSIGNEE.id);
+    }
+  });
+
   it("warns once and sends nothing when there is nobody to tell", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     await pool.query("UPDATE hf_user SET role = 'member' WHERE role = 'admin'");
@@ -131,6 +165,17 @@ describe("the approval notifier", () => {
       warn.mockRestore();
     }
   });
+
+  async function ban(id: string, expires: Date | null): Promise<void> {
+    await pool.query("UPDATE hf_user SET banned = true, ban_expires = $2 WHERE id = $1", [
+      id,
+      expires,
+    ]);
+  }
+
+  async function unban(id: string): Promise<void> {
+    await pool.query("UPDATE hf_user SET banned = false, ban_expires = NULL WHERE id = $1", [id]);
+  }
 
   /** The notifier `worker.ts` builds, with the send replaced by a capture. */
   async function notify(notice: ApprovalNotice): Promise<ApprovalMessage[]> {
