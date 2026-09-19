@@ -22,21 +22,35 @@ import { requireEnv } from "./env";
  */
 
 /**
- * The assignee, if the gate named one; otherwise every admin.
+ * A ban the admin plugin still holds in force: `banned` set, and either no expiry or one that
+ * has not passed. `ban_expires` in the past is a lapsed ban and the row keeps `banned` true
+ * until better-auth next touches it, so the expiry has to be read alongside the flag.
+ */
+const BAN_IN_FORCE = sql`banned IS TRUE AND (ban_expires IS NULL OR ban_expires > now())`;
+
+/**
+ * The assignee, if the gate named one and they can still act; otherwise every admin who can.
  *
  * An `assigneeId` with no `hf_user` row notifies nobody rather than falling back to the admins:
  * a notice that quietly goes to somebody else than the human it was assigned to is worse than
- * the gap, which `createApprovalNotifier` warns about loudly.
+ * the gap, which `createApprovalNotifier` warns about loudly. A *banned* assignee is the other
+ * case — the row is there but its human is locked out of the link, so "the assignee else the
+ * admins" is read as the admins rather than as a gate left waiting on nobody.
  */
 export async function approvalRecipients(
   notice: ApprovalNotice,
   ctx: StepContext,
 ): Promise<string[]> {
   return ctx.tx(async (db) => {
+    if (notice.assigneeId !== null) {
+      const { rows } = await db.execute<{ email: string; banned: boolean }>(
+        sql`SELECT email, ${BAN_IN_FORCE} AS banned FROM hf_user WHERE id = ${notice.assigneeId}`,
+      );
+      if (rows.length === 0) return [];
+      if (!rows[0]!.banned) return [rows[0]!.email];
+    }
     const { rows } = await db.execute<{ email: string }>(
-      notice.assigneeId === null
-        ? sql`SELECT email FROM hf_user WHERE role = 'admin' ORDER BY email`
-        : sql`SELECT email FROM hf_user WHERE id = ${notice.assigneeId}`,
+      sql`SELECT email FROM hf_user WHERE role = 'admin' AND NOT (${BAN_IN_FORCE}) ORDER BY email`,
     );
     return rows.map((row) => row.email);
   });
