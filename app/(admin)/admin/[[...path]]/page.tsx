@@ -2,7 +2,10 @@ import type { AdminField, AdminResource } from "@hyperfixation/admin";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { CSSProperties, ReactNode } from "react";
-import { adminRouter, getRow, listRows, type AdminRow } from "@/admin";
+import { adminRouter, currentBudgetPeriod, getRow, listRows, type AdminRow } from "@/admin";
+import { BudgetForm } from "./budget";
+import { setAppBudget } from "./budget-actions";
+import { BUDGET_ERROR_PARAM, offersSetBudget } from "./budget-form";
 
 /**
  * The admin, behind one catch-all route. `@hyperfixation/admin` generates every resource from
@@ -18,8 +21,17 @@ import { adminRouter, getRow, listRows, type AdminRow } from "@/admin";
  *
  * Reading rows is this file's job and not the package's: `@hyperfixation/admin` resolves a
  * route and refuses one, and cannot depend on `next` any more than `@hyperfixation/auth` can.
+ *
+ * One resource is more than a table shown as text: a budget period carries the `set-budget`
+ * action, and a row that offers it gets the form below its fields.
  */
-export default async function AdminPage({ params }: { params: Promise<{ path?: string[] }> }) {
+export default async function AdminPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ path?: string[] }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { path = [] } = await params;
   const router = adminRouter();
   const route = await router.route(path);
@@ -94,8 +106,30 @@ export default async function AdminPage({ params }: { params: Promise<{ path?: s
           </div>
         ))}
       </dl>
+      {offersSetBudget(route.resource) ? (
+        <BudgetForm
+          period={route.id}
+          budgetUsd={fieldValue(route.resource, row, "budgetUsd")}
+          spentUsd={fieldValue(route.resource, row, "spentUsd")}
+          currentPeriod={route.id === (await currentBudgetPeriod())}
+          error={errorOf(await searchParams)}
+          action={setAppBudget}
+        />
+      ) : null}
     </Shell>
   );
+}
+
+/** A refusal the action redirected back with. Bounded, and rendered as text by React. */
+function errorOf(search: Record<string, string | string[] | undefined> | undefined) {
+  const value = search?.[BUDGET_ERROR_PARAM];
+  const text = Array.isArray(value) ? value[0] : value;
+  return text === undefined || text === "" ? undefined : text.slice(0, 200);
+}
+
+function fieldValue(resource: AdminResource, row: AdminRow, name: string): string {
+  const field = resource.fields.find((candidate) => candidate.name === name);
+  return field === undefined ? "—" : display(row[field.column]);
 }
 
 function Shell({ children }: { children: ReactNode }) {

@@ -44,6 +44,18 @@ export async function listRows(resource: AdminResource): Promise<AdminRow[]> {
   return result.rows as AdminRow[];
 }
 
+/**
+ * The period the next gate will bill to. Read from the database rather than from this process's
+ * clock, because `hf_budget_period.period` is stamped by `now() AT TIME ZONE 'UTC'` in the gate
+ * and a web container an hour off would call the wrong month the current one.
+ */
+export async function currentBudgetPeriod(): Promise<string> {
+  const result = await pool().query<{ period: string }>(
+    "SELECT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM') AS period",
+  );
+  return result.rows[0]!.period;
+}
+
 export async function getRow(resource: AdminResource, id: string): Promise<AdminRow | undefined> {
   const key = resource.primaryKey[0];
   if (key === undefined) return undefined;
