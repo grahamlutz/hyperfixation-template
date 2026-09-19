@@ -42,7 +42,7 @@ restart just as well as four that ran the loop.
 | `src/env.ts` | `REQUIRED_ENV`, the env contract both compose files are held to |
 | `src/auth.ts` | better-auth and `requireSession()` — this app's one session boundary |
 | `src/workspace.ts` | The workspace's one entry: the gate, the attached app, the session as `{ userId, admin }` |
-| `src/notify.ts` | The worker's approval notifier: who a gate is told to, and the mail carrying its link |
+| `src/notify.ts` | The worker's approval notifier: who a gate is told to — the assignee, else every admin, never a banned one — and the mail carrying its link |
 | `drizzle/` | This app's migrations. `pnpm db:generate` after a schema edit |
 | `prompts/` | Prompt files, addressed by content hash |
 | `fixtures/` | One per flow, named for the flow. The contract suite needs it |
