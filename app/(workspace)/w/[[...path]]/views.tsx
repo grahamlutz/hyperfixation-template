@@ -223,7 +223,7 @@ export function RecordScreen({
   );
 }
 
-/** A route the workspace serves and a later PR renders: C6.5 the inbox, C6.6 the board. */
+/** A route the workspace serves and a later PR renders: C6.5 the inbox. */
 export function Placeholder({ title, coming }: { title: string; coming: string }) {
   return (
     <>
@@ -271,7 +271,7 @@ function TaskList({ tasks }: { tasks: readonly TaskRow[] }) {
   );
 }
 
-function when(at: Date | null): string {
+export function when(at: Date | null): string {
   return at === null ? "—" : at.toISOString();
 }
 
@@ -281,4 +281,4 @@ function display(value: unknown): string {
   return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
-const MUTED: CSSProperties = { opacity: 0.7, fontSize: "0.875rem" };
+export const MUTED: CSSProperties = { opacity: 0.7, fontSize: "0.875rem" };

@@ -47,9 +47,9 @@ restart just as well as four that ran the loop.
 | `fixtures/` | One per flow, named for the flow. The contract suite needs it |
 | `fixtures/llm/` | `<promptName>.json`, served whenever no provider key is set |
 | `fixtures/sources/` | What the demo source streams, in place of a real API |
-| `tests/` | `contract` (the loop once, end to end), `flow-restart` (every flow twice), `draft-approval` (past the gate), `demo-draft-schema` (the validators alone), `records-archive` (the mixin), `workspace-render` (model output rendered as text), `workspace-actor` (the session as an actor), `compose-envs` (the env contract) |
+| `tests/` | `contract` (the loop once, end to end), `flow-restart` (every flow twice), `draft-approval` (past the gate), `demo-draft-schema` (the validators alone), `records-archive` (the mixin), `workspace-render` (model output rendered as text), `board-render` (the board's columns, in the record type's order), `workspace-actor` (the session as an actor), `compose-envs` (the env contract) |
 | `app/` | The two catch-all routes, `/auth/*`, and the two API mounts. Almost nothing per-app |
-| `app/(workspace)/w/[[...path]]/` | The workspace: `page.tsx` renders what `app.workspace.route()` resolved, `views.tsx` is the screens, `actions.ts` the label and the archive |
+| `app/(workspace)/w/[[...path]]/` | The workspace: `page.tsx` renders what `app.workspace.route()` resolved, `views.tsx` is the screens, `board.tsx` the read-only pipeline board, `actions.ts` the label and the archive |
 | `worker.ts` / `migrate.ts` | The worker — which also drives `app.schedules` — and the one-shot migrator |
 
 ## Working here

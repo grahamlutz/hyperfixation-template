@@ -25,6 +25,8 @@ import { startServer, type RunningServer } from "./server";
 const MEMBER_EMAIL = "member@example.com";
 const ADMIN_EMAIL = "admin@example.com";
 const DEMO_NOTE_NAME = "e2e archive target";
+const BOARD_NOTE_NAME = "e2e board card";
+const BOARD_ARCHIVED_NAME = "e2e board archived card";
 
 let server: RunningServer;
 let browser: Browser;
@@ -114,6 +116,40 @@ describe("the Phase 1 exit bar", () => {
 });
 
 describe("the workspace", () => {
+  it("shows the pipeline board with each record in its stage's column", async () => {
+    const { context, page } = await openWithAuthenticator();
+    const onBoard = await seedDemoNote(BOARD_NOTE_NAME, "scored");
+    const archived = await seedDemoNote(BOARD_ARCHIVED_NAME, "scored");
+    await pool.query(`UPDATE demo_note SET archived_at = now() WHERE id::text = $1`, [archived]);
+    try {
+      await signInByEmailedCode(page, MEMBER_EMAIL);
+      await enrolPasskey(page);
+
+      await page.goto(`${server.baseUrl}/w/demoNote`);
+      await page.getByRole("heading", { name: "Demo notes" }).waitFor({ state: "visible" });
+      // The columns are the record type's `stages`, in the order it registered them.
+      const columns = await page.getByRole("heading", { level: 2 }).allInnerTexts();
+      // Each heading carries its column's count; the title is what is left without it.
+      expect(columns.map((text) => text.replace(/\s*\d+\s*$/, "").trim())).toEqual([
+        "New",
+        "Scored",
+        "Drafted",
+        "Sent",
+      ]);
+
+      const scored = page.getByRole("heading", { name: /^Scored/ }).locator("xpath=..");
+      await scored.getByRole("link", { name: BOARD_NOTE_NAME }).waitFor({ state: "visible" });
+      await scored.getByRole("link", { name: BOARD_NOTE_NAME }).click();
+      await page.waitForURL(`${server.baseUrl}/w/demoNote/${onBoard}`);
+
+      // `workspace.board` reads unarchived rows only, so the archived row is on no column.
+      await page.goto(`${server.baseUrl}/w/demoNote`);
+      expect(await page.getByRole("link", { name: BOARD_ARCHIVED_NAME }).count()).toBe(0);
+    } finally {
+      await context.close();
+    }
+  }, 300_000);
+
   it("shows a member their home, a record's page, and archives it in one click", async () => {
     const { context, page } = await openWithAuthenticator();
     const recordId = await seedDemoNote();
@@ -253,13 +289,13 @@ async function seedMember(): Promise<void> {
  * these is `tests/contract.test.ts`'s, on a database of its own, and what this suite needs is a
  * row with a name — not a run. The upsert un-archives it so the suite can be run twice.
  */
-async function seedDemoNote(): Promise<string> {
+async function seedDemoNote(name = DEMO_NOTE_NAME, stage: string | null = null): Promise<string> {
   const result = await pool.query<{ id: string }>(
-    `INSERT INTO demo_note (normalized_name, body)
-     VALUES ($1, 'A note the workspace suite archives.')
-     ON CONFLICT (normalized_name) DO UPDATE SET archived_at = NULL
+    `INSERT INTO demo_note (normalized_name, body, stage)
+     VALUES ($1, 'A note the workspace suite archives.', $2)
+     ON CONFLICT (normalized_name) DO UPDATE SET archived_at = NULL, stage = EXCLUDED.stage
      RETURNING id::text AS id`,
-    [DEMO_NOTE_NAME],
+    [name, stage],
   );
   await pool.query(`DELETE FROM hf_label WHERE record_type = 'demoNote' AND record_id = $1`, [
     result.rows[0]!.id,
