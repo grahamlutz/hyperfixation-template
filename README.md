@@ -12,6 +12,10 @@ hf up   # install, infra, migrate, bootstrap, status tokens, then web and worker
 Safe to rerun: each step skips itself once it's already done, so `hf up` is also the everyday
 "start the app" command.
 
+The first `hf up` seeds a $10 monthly LLM budget. To start with a different cap, add
+`HF_BOOTSTRAP_BUDGET_USD=<dollars>` to `.env` before it runs; a deployed app must set its own,
+since `hf bootstrap` refuses to run without one.
+
 - `http://localhost:3000/auth/sign-in` — an emailed code, then a passkey at `/auth/passkey`
 - `http://localhost:3000/w` — the workspace
 - `http://localhost:3000/admin` — the admin, for admins; a 404 for everyone else
