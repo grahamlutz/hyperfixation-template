@@ -82,8 +82,7 @@ Delete, in one commit:
 - `prompts/score.md` and `fixtures/llm/score.json`, together: a prompt file with no fixture is a
   `FixtureMissing` on every keyless run, and a fixture with no prompt is never read
 - `fixtures/sources/demoBusinesses.json`
-- `src/db/schema/demo.ts`, its `export` in `src/db/schema/index.ts`, and the `demo_note` entry
-  in `src/hyperfixation.ts`'s `records`
+- the `demo_note` entry in `src/hyperfixation.ts`'s `records`
 - `demo_note` from `APP_TABLES` in `tests/flow-restart.test.ts`, replacing it with the tables
   the real flows write — and the "left the demo loop's own rows behind" test in the same file,
   replaced by the equivalent assertion on what the app's own loop produces
@@ -94,8 +93,15 @@ Delete, in one commit:
 Keep `src/llm.ts`: it is the app's provider registry, not part of the demo. Only the model name
 and prompt name inside a scorer are.
 
-Add a migration dropping `demo_note` — do not edit `drizzle/0000_demo_note.sql`. A migration
-that has run somewhere is history; rewriting it makes the journal disagree with the database.
+**Leave `demo_note` in the database, and leave `src/db/schema/demo.ts` and its `export` in
+`src/db/schema/index.ts` where they are.** The migrator refuses every `DROP` in an app migration
+on purpose (`assertAppMigrationAllowed`): deleting data automatically at deploy is what its
+allowlist exists to prevent. Deleting the schema file would make `pnpm db:generate` emit a
+`DROP TABLE demo_note` migration that can never run. An unused table costs nothing. If you want
+it gone, drop it by hand on each database in a reviewed step outside the migrator, and keep the
+schema file so drizzle's snapshot still agrees. Never edit `drizzle/0000_demo_note.sql` or
+`0001`: a migration that has run somewhere is history, and rewriting it makes the journal
+disagree with the database.
 
 ```
 pnpm db:generate
@@ -108,7 +114,8 @@ pnpm typecheck && pnpm lint && pnpm test
 rg -i 'demo' --glob '!node_modules' --glob '!drizzle/*.sql'
 ```
 
-`prompts/README.md` and this skill are allowed to. Nothing else should be.
+`prompts/README.md`, this skill, `src/db/schema/demo.ts` and its `export` are allowed to.
+Nothing else should be.
 
 ## What not to do
 
