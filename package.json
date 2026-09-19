@@ -6,9 +6,8 @@
   "engines": {
     "node": ">=22"
   },
-  "//dev": "TEMPORARY, and paired with pnpm-workspace.yaml — delete `--webpack` at the first @hyperfixation/* publish. Next 16's dev is Turbopack, which cannot resolve a `link:`-ed package outside the project root; the overrides that link the sibling core checkout are what produce that shape, and deleting them closes this too.",
   "scripts": {
-    "dev": "next dev --webpack",
+    "dev": "next dev",
     "build": "next build",
     "start": "node .next/standalone/server.js",
     "worker": "node --import tsx worker.ts",
@@ -23,12 +22,12 @@
   "dependencies": {
     "@better-auth/passkey": "1.7.5",
     "@dbos-inc/dbos-sdk": "4.27.6",
-    "@hyperfixation/admin": "^0.0.0",
-    "@hyperfixation/ai": "^0.0.0",
-    "@hyperfixation/auth": "^0.0.0",
-    "@hyperfixation/core": "^0.0.0",
-    "@hyperfixation/db": "^0.0.0",
-    "@hyperfixation/workflows": "^0.0.0",
+    "@hyperfixation/admin": "^0.1.0",
+    "@hyperfixation/ai": "^0.1.0",
+    "@hyperfixation/auth": "^0.1.0",
+    "@hyperfixation/core": "^0.1.0",
+    "@hyperfixation/db": "^0.1.0",
+    "@hyperfixation/workflows": "^0.1.0",
     "better-auth": "1.7.5",
     "drizzle-orm": "^0.45.2",
     "next": "^16.3.5",
@@ -40,8 +39,8 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@hyperfixation/eslint-config": "^0.0.0",
-    "@hyperfixation/testing": "^0.0.0",
+    "@hyperfixation/eslint-config": "^0.1.0",
+    "@hyperfixation/testing": "^0.1.0",
     "@turbo/gen": "^2.10.13",
     "@types/node": "^26.5.1",
     "@types/nodemailer": "^7.0.0",

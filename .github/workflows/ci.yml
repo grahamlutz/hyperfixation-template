@@ -33,20 +33,8 @@ jobs:
       # shorter than 7 characters. The harness overrides this per worker; this covers the
       # in-process half.
       HF_BUILD_SHA: ${{ github.sha }}
-    defaults:
-      run:
-        working-directory: hyperfixation-template
     steps:
       - uses: actions/checkout@v7
-        with:
-          path: hyperfixation-template
-      # `pnpm-workspace.yaml`'s overrides point every `@hyperfixation/*` package at
-      # `link:../hyperfixation/packages/*` — the unpublished-package bridge described there.
-      # TEMPORARY: delete this checkout and build once those packages are on npm (Phase 3).
-      - uses: actions/checkout@v7
-        with:
-          repository: grahamlutz/hyperfixation-core
-          path: hyperfixation
       - uses: pnpm/action-setup@v6
         with:
           version: 12.4.2
@@ -54,23 +42,15 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-          cache-dependency-path: hyperfixation-template/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-        working-directory: hyperfixation
-      - run: pnpm build
-        working-directory: hyperfixation
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm lint
       # The contract suite. `flow-restart.test.ts` runs every registered flow through a restart
       # under the worker's fence rule, which is what gates a core bump on this app's own shape.
       - run: pnpm test
-      # `--webpack`, not the `build` script: Turbopack cannot resolve a `link:`-ed package
-      # outside the project root, the same reason `dev` carries the flag. `build` deliberately
-      # keeps the published-correct spelling (see `tests/e2e/server.ts`, which does the same).
       # Prerendering `/auth/passkey` reads `REQUIRED_ENV` (src/env.ts) at build time, so this
       # step needs the same dummy values the `compose` job below uses.
-      - run: pnpm exec next build --webpack
+      - run: pnpm exec next build
         env:
           HF_PROCESS: web
           DATABASE_URL: postgres://unused

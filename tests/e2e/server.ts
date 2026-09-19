@@ -59,7 +59,7 @@ export async function startServer(): Promise<RunningServer> {
 }
 
 async function buildStandalone(root: string): Promise<void> {
-  await run("pnpm", ["exec", "next", "build", "--webpack"], root);
+  await run("pnpm", ["exec", "next", "build"], root);
   // `output: 'standalone'` traces the server's own dependencies and nothing else; the client
   // chunks and `public/` are copied in by whoever deploys it. The sign-in form is a client
   // component, so without this the page renders and never hydrates.
