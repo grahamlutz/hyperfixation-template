@@ -33,9 +33,15 @@ import { app, recordTables } from "../src/hyperfixation";
  *
  * The flows run in the order `src/hyperfixation.ts` registers them, and that order is load-
  * bearing because the demo's fixtures chain: `collectDemoSource` stages the source's rows,
- * `resolveDemoSource` turns them into the `demo_note` records, and those are what
- * `scoreDemoNotes` finds to score. Nothing here resets the database between flows on purpose —
- * the loop is what is under test, not three flows in isolation.
+ * `resolveDemoSource` turns them into the `demo_note` records, those are what `scoreDemoNotes`
+ * finds to score, and the scores are what `draftDemoOutreach` picks a record to write to by.
+ * Nothing here resets the database between flows on purpose — the loop is what is under test,
+ * not four flows in isolation.
+ *
+ * `draftDemoOutreach` settles `waiting` rather than `done`, which is a case worth naming: both
+ * attempts stop at the same approval, and the second one must re-suspend on the row the first
+ * one wrote instead of opening a second gate. What happens once that approval is decided is
+ * `draft-approval.test.ts` — the restart harness never decides one.
  */
 
 const FIXTURES = new URL("../fixtures/", import.meta.url);
@@ -120,8 +126,8 @@ describe("flow-restart", () => {
   );
 
   /**
-   * What the restart assertion cannot say. `runFlowSync` counts rows, so three flows that each
-   * did nothing pass it just as well as three that ran the loop — and `scoreDemoNotes` in
+   * What the restart assertion cannot say. `runFlowSync` counts rows, so four flows that each
+   * did nothing pass it just as well as four that ran the loop — and `scoreDemoNotes` in
    * particular is trivially stable if `resolveDemoSource` created no records for it to find.
    * This is the values half: the two fixture businesses became two records, and each one carries
    * the score `fixtures/llm/score.json` answers with under spec version 1.
@@ -136,6 +142,25 @@ describe("flow-restart", () => {
     expect(rows).toEqual([
       { normalized_name: "acme roofing", score: 0.82, spec_version: 1 },
       { normalized_name: "brightleaf landscaping", score: 0.21, spec_version: 1 },
+    ]);
+  });
+
+  /**
+   * The same gap, for the flow that stops. `draftDemoOutreach` settling `waiting` twice is also
+   * what a flow that selected nothing and suspended on nothing would look like from the counts,
+   * so this names the row: one pending `demoDraft` for the record the scorer liked, and only one
+   * after two attempts.
+   */
+  it("left one pending draft approval behind", async () => {
+    const { rows } = await pool.query<{ type: string; status: string; record_id: string }>(
+      "SELECT type, status, record_id FROM hf_approval",
+    );
+
+    const note = await pool.query<{ id: string }>(
+      "SELECT id::text AS id FROM demo_note WHERE normalized_name = 'acme roofing'",
+    );
+    expect(rows).toEqual([
+      { type: "demoDraft", status: "pending", record_id: note.rows[0]!.id },
     ]);
   });
 });

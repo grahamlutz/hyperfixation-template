@@ -32,6 +32,8 @@ every commit. If a change makes it red, the change is wrong far more often than 
 | `src/sources/` | `defineSource` — what a collect flow streams into `hf_source_record` |
 | `src/resolvers/` | `defineResolver` — which record a loaded row is, and how to create or update it |
 | `src/specs/` / `src/scorers/` | `defineSpec` and `defineScorer` — the criteria, and the call that judges against them |
+| `src/approvals/` | One file per approval type: the Zod schema an edited draft is parsed against |
+| `src/channels/` | `ActionChannel`s — everything that leaves the app from inside a run |
 | `src/llm.ts` | The app's one `createLlm`: the provider registry and `prompts/` |
 | `src/db/schema/` | This app's own tables. Never an `hf_*` table |
 | `src/env.ts` | `REQUIRED_ENV`, the env contract both compose files are held to |
@@ -67,13 +69,23 @@ launch in one process, and the advisory lock is released by process death and no
   operation and throws `ControlPlaneInWorkflow`. A flow that wants one creates a task.
 - **Do not add a var to one compose service.** `REQUIRED_ENV`, both `environment:` blocks and
   `.env.example` move together, and `compose-envs.test.ts` fails if they do not.
+- **Do not declare `dedupes: true` on a channel whose provider does not dedupe on the
+  `idempotencyKey`.** It is the only thing telling `actions.perform` whether a send left in flight
+  by an attempt that is gone may be repeated. Declared falsely, a redeploy mid-send delivers
+  twice; declared honestly, the row goes `uncertain`, a task asks a human, and the run fails with
+  `ActionUncertain` — which is the correct outcome and not something to catch.
+- **Do not put an approval's validators in the flow.** They belong on the approval type's Zod
+  schema, because `approvals.decide` is what parses an **edited** draft, and a rule the flow
+  enforces is a rule the inbox's text box does not.
 
 ## Replacing the demo
 
-The template ships the first half of a working loop, on one record table (`demo_note`), so the
-contract suite has something real to hold and so the shape of every registration is visible
-rather than described: a source, a resolver, a spec, a scorer, and the three flows that chain
-them — `collectDemoSource`, `resolveDemoSource`, `scoreDemoNotes`, each on a schedule. With no
-provider key set the scorer's calls come from `fixtures/llm/`, so it all runs on a laptop and in
-CI for nothing. `.claude/skills/replace-demo/` is the guided way to swap it for this app's own
-domain.
+The template ships a working loop, on one record table (`demo_note`), so the contract suite has
+something real to hold and so the shape of every registration is visible rather than described: a
+source, a resolver, a spec, a scorer, the `demoDraft` approval type, the `email` channel, and the
+four flows that chain them — `collectDemoSource`, `resolveDemoSource`, `scoreDemoNotes` on a
+schedule each, and `draftDemoOutreach`, which is started for a record rather than on a clock
+because it asks a human. With no provider key set the model's answers come from `fixtures/llm/`
+and with `SMTP_URL` unset the channel serializes the mail instead of sending it, so it all runs
+on a laptop and in CI for nothing. `.claude/skills/replace-demo/` is the guided way to swap it
+for this app's own domain.

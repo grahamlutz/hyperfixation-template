@@ -37,6 +37,10 @@ overrides:
   # bridge too, or the worker fixture would patch a different `DBOS.shutdown` than the one
   # `startWorker()` calls.
   "@dbos-inc/dbos-sdk": "link:../hyperfixation/packages/workflows/node_modules/@dbos-inc/dbos-sdk"
+  # And zod, for the same reason as `drizzle-orm`: `approvals.decide` calls `safeParse` on the
+  # schema an app registered, and two copies of zod are two unrelated `ZodType` declarations —
+  # `ApprovalTypeDefinition.schema` stops accepting this app's own schema.
+  "zod": "link:../hyperfixation/packages/workflows/node_modules/zod"
 
 # vitest pulls esbuild; the same allowance hyperfixation-core makes.
 allowBuilds:
