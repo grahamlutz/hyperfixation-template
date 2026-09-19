@@ -48,9 +48,10 @@ jobs:
       # The contract suite. `flow-restart.test.ts` runs every registered flow through a restart
       # under the worker's fence rule, which is what gates a core bump on this app's own shape.
       - run: pnpm test
+      # The `build` script, so the flag it carries is the one the image build uses too.
       # Prerendering `/auth/passkey` reads `REQUIRED_ENV` (src/env.ts) at build time, so this
       # step needs the same dummy values the `compose` job below uses.
-      - run: pnpm exec next build
+      - run: pnpm build
         env:
           HF_PROCESS: web
           DATABASE_URL: postgres://unused

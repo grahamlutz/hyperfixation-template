@@ -59,7 +59,9 @@ export async function startServer(): Promise<RunningServer> {
 }
 
 async function buildStandalone(root: string): Promise<void> {
-  await run("pnpm", ["exec", "next", "build"], root);
+  // `--webpack`, as everywhere: Turbopack duplicates the flow registry per page entry. See
+  // CLAUDE.md, What not to do.
+  await run("pnpm", ["exec", "next", "build", "--webpack"], root);
   // `output: 'standalone'` traces the server's own dependencies and nothing else; the client
   // chunks and `public/` are copied in by whoever deploys it. The sign-in form is a client
   // component, so without this the page renders and never hydrates.

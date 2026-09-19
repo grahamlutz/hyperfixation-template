@@ -7,9 +7,10 @@
     "node": ">=22"
   },
   "//typescript": "`typescript` is held at 5.9, not stale: `@hyperfixation/eslint-config` brings typescript-eslint 8, whose peer range is `>=4.8.4 <6.1.0`. Past that, `pnpm lint` does not warn — it refuses to start. Raise it when core raises typescript-eslint, not before.",
+  "//webpack": "Every `next` invocation carries `--webpack`, here and in CI and tests/e2e/server.ts. Turbopack copies `src/flows/*` per page entry while the registry inside `@hyperfixation/workflows` stays one module, so a second page re-registers a flow and the build dies on `DuplicateFlow`. See CLAUDE.md, What not to do.",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
     "start": "node .next/standalone/server.js",
     "worker": "node --import tsx worker.ts",
     "migrate": "node --import tsx migrate.ts",
