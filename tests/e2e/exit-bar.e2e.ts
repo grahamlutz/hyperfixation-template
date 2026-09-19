@@ -18,9 +18,13 @@ import { startServer, type RunningServer } from "./server";
  *
  * It needs the dev compose up and the app migrated and bootstrapped — `hf dev --compose-only &&
  * hf migrate && hf bootstrap` — and it starts the server itself. See `pnpm test:e2e`.
+ *
+ * The workspace suite at the bottom shares this file's browser, server and sign-in helpers: it is
+ * the same signed-in member, one screen further in.
  */
 const MEMBER_EMAIL = "member@example.com";
 const ADMIN_EMAIL = "admin@example.com";
+const DEMO_NOTE_NAME = "e2e archive target";
 
 let server: RunningServer;
 let browser: Browser;
@@ -103,6 +107,49 @@ describe("the Phase 1 exit bar", () => {
 
       // A resource the admin does not serve answers exactly as a refusal does.
       expect(await status(page, "/admin/widgets")).toBe(404);
+    } finally {
+      await context.close();
+    }
+  }, 300_000);
+});
+
+describe("the workspace", () => {
+  it("shows a member their home, a record's page, and archives it in one click", async () => {
+    const { context, page } = await openWithAuthenticator();
+    const recordId = await seedDemoNote();
+    try {
+      await signInByEmailedCode(page, MEMBER_EMAIL);
+      await enrolPasskey(page);
+      expect(new URL(page.url()).pathname).toBe("/w");
+
+      // Home is the three things that need a human, whether or not any of them has rows yet.
+      await page.getByRole("heading", { name: "Approvals" }).waitFor({ state: "visible" });
+      await page.getByRole("heading", { name: "Open tasks" }).waitFor({ state: "visible" });
+      await page.getByRole("heading", { name: "Review queue" }).waitFor({ state: "visible" });
+      await page.getByText(`Signed in as ${MEMBER_EMAIL}`).waitFor({ state: "visible" });
+
+      await page.goto(`${server.baseUrl}/w/demoNote/${recordId}`);
+      await page.getByRole("heading", { name: DEMO_NOTE_NAME }).waitFor({ state: "visible" });
+
+      await page.getByRole("button", { name: "Label up" }).click();
+      await page.getByText("up on record").waitFor({ state: "visible" });
+
+      await page.getByRole("button", { name: "Archive" }).click();
+      // The page keeps showing the record; what changes is that it says so and stops offering
+      // the button again. The `·` keeps this off the activity row the archive also wrote.
+      await page.getByText(/· archived \d{4}-/).waitFor({ state: "visible" });
+      expect(await page.getByRole("button", { name: "Archive" }).count()).toBe(0);
+      // That row is the timeline's other half: what a human did carries no run, and the group
+      // it lands in is the one this page calls "manual".
+      await page.getByRole("heading", { name: "manual" }).waitFor({ state: "visible" });
+
+      // And it has left the board's data: `workspace.board` reads unarchived rows only, so the
+      // column this row was in no longer has it.
+      expect(await archivedAt(recordId)).not.toBeNull();
+
+      // A record type that is registered but has no such row is a 404, not an empty page.
+      expect(await status(page, "/w/demoNote/999999")).toBe(404);
+      expect(await status(page, "/w/nothingRegistered")).toBe(404);
     } finally {
       await context.close();
     }
@@ -199,6 +246,33 @@ async function seedMember(): Promise<void> {
     `DELETE FROM hf_passkey WHERE user_id IN (SELECT id FROM hf_user WHERE email = ANY($1::text[]))`,
     [[MEMBER_EMAIL, ADMIN_EMAIL]],
   );
+}
+
+/**
+ * One record for the workspace to show, seeded rather than collected: the loop that produces
+ * these is `tests/contract.test.ts`'s, on a database of its own, and what this suite needs is a
+ * row with a name — not a run. The upsert un-archives it so the suite can be run twice.
+ */
+async function seedDemoNote(): Promise<string> {
+  const result = await pool.query<{ id: string }>(
+    `INSERT INTO demo_note (normalized_name, body)
+     VALUES ($1, 'A note the workspace suite archives.')
+     ON CONFLICT (normalized_name) DO UPDATE SET archived_at = NULL
+     RETURNING id::text AS id`,
+    [DEMO_NOTE_NAME],
+  );
+  await pool.query(`DELETE FROM hf_label WHERE record_type = 'demoNote' AND record_id = $1`, [
+    result.rows[0]!.id,
+  ]);
+  return result.rows[0]!.id;
+}
+
+async function archivedAt(recordId: string): Promise<Date | null> {
+  const result = await pool.query<{ archived_at: Date | null }>(
+    `SELECT archived_at FROM demo_note WHERE id::text = $1`,
+    [recordId],
+  );
+  return result.rows[0]?.archived_at ?? null;
 }
 
 async function factorOf(email: string): Promise<string | undefined> {
