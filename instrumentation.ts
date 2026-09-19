@@ -17,14 +17,13 @@ const LANGFUSE_ENV = ["LANGFUSE_BASE_URL", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECR
 
 /** Next may call `register()` more than once in a process; a second provider would double-export. */
 let langfuseRegistered = false;
+/** Same for Sentry: a second `init()` replaces the client the first one's handlers already hold. */
+let sentryInitialised = false;
 
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
-  const sentryDsn = process.env.SENTRY_DSN;
-  if (sentryDsn !== undefined && sentryDsn !== "") {
-    // TODO(phase 2): @sentry/nextjs, once the DSN is provisioned by `hf new`.
-  }
+  await initSentry();
 
   if (langfuseRegistered) return;
   if (LANGFUSE_ENV.some((name) => (process.env[name] ?? "") === "")) return;
@@ -40,3 +39,54 @@ export async function register(): Promise<void> {
   const { registerLangfuse } = await import(/* webpackIgnore: true */ "@hyperfixation/workflows");
   langfuseRegistered = registerLangfuse() !== undefined;
 }
+
+/**
+ * Nothing at all when `SENTRY_DSN` is empty — not even the import, which is what keeps a build
+ * with the DSN unset from loading the SDK into the prerender. `register()` runs during
+ * `next build` too, so anything this reaches for has to be inert offline.
+ *
+ * `webpackIgnore` for the same reason the Langfuse import has it: `@sentry/nextjs` pulls
+ * OpenTelemetry's require hooks, which webpack cannot follow, and the instrumentation hook's
+ * compilation does not read `serverExternalPackages`.
+ */
+async function initSentry(): Promise<void> {
+  if (sentryInitialised) return;
+  if ((process.env.SENTRY_DSN ?? "") === "") return;
+
+  const Sentry = await import(/* webpackIgnore: true */ "@sentry/nextjs");
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    release: process.env.HF_BUILD_SHA,
+    // Errors only. A trace would sample the request that carried a draft through the workspace,
+    // and the spans worth having are Langfuse's, which already carry the run.
+    tracesSampleRate: 0,
+    // Which is what makes `RequestData` safe to keep: with PII off, the SDK collects no request
+    // or response body at all, denies the PII headers and cookies, and sends no gen-AI input or
+    // output — so an approval's edited draft cannot ride out on the request that failed. What it
+    // leaves on is the URL and the route, which is the reason to report at all.
+    sendDefaultPii: false,
+    integrations: (defaults) => defaults.filter((integration) => !WITHOUT.has(integration.name)),
+  });
+  sentryInitialised = true;
+}
+
+/**
+ * The three the PII switch does not cover. `LocalVariables` is the loud one: `stackFrameVariables`
+ * stays true with PII off, and the locals of a failing step are the model's output and the draft
+ * it wrote. `Console` turns the app's own logging into breadcrumbs. `ProcessSession` is not about
+ * payloads at all — it ends a session on `beforeExit`, which is a POST from `next build` itself.
+ */
+const WITHOUT = new Set(["LocalVariables", "Console", "ProcessSession"]);
+
+/**
+ * Next's own hook, and the only thing that reports a server error: nothing here wraps route
+ * handlers or server components at build time (no `withSentryConfig`), so this export is what
+ * turns a thrown error into an event.
+ */
+export async function onRequestError(...args: Parameters<CaptureRequestError>): Promise<void> {
+  if (!sentryInitialised) return;
+  const { captureRequestError } = await import(/* webpackIgnore: true */ "@sentry/nextjs");
+  captureRequestError(...args);
+}
+
+type CaptureRequestError = typeof import("@sentry/nextjs").captureRequestError;

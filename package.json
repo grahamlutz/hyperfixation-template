@@ -28,6 +28,8 @@
     "@hyperfixation/core": "^0.1.0",
     "@hyperfixation/db": "^0.1.0",
     "@hyperfixation/workflows": "^0.1.0",
+    "@sentry/nextjs": "10.75.0",
+    "@sentry/node": "10.75.0",
     "better-auth": "1.7.5",
     "drizzle-orm": "^0.45.2",
     "next": "^16.3.5",
