@@ -271,7 +271,7 @@ function TaskList({ tasks }: { tasks: readonly TaskRow[] }) {
   );
 }
 
-function when(at: Date | null): string {
+export function when(at: Date | null): string {
   return at === null ? "—" : at.toISOString();
 }
 
@@ -281,4 +281,4 @@ function display(value: unknown): string {
   return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
-const MUTED: CSSProperties = { opacity: 0.7, fontSize: "0.875rem" };
+export const MUTED: CSSProperties = { opacity: 0.7, fontSize: "0.875rem" };
