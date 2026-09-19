@@ -32,6 +32,11 @@ export async function register(): Promise<void> {
   // Dynamic, and below the runtime guard: `@hyperfixation/workflows` reaches DBOS and Node's
   // own `async_hooks`, neither of which resolves on the edge runtime, and a static import puts
   // it in that bundle's module graph whether or not this function runs.
-  const { registerLangfuse } = await import("@hyperfixation/workflows");
+  //
+  // `webpackIgnore` because a dynamic import is not enough on its own: `serverExternalPackages`
+  // does not reach the instrumentation hook's own compilation, so without this webpack follows
+  // the specifier into `pg` and fails the whole build on `Can't resolve 'fs'` — which serves
+  // every page a 500 in dev, whether or not Langfuse is configured.
+  const { registerLangfuse } = await import(/* webpackIgnore: true */ "@hyperfixation/workflows");
   langfuseRegistered = registerLangfuse() !== undefined;
 }
