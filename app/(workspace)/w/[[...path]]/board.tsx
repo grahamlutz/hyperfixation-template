@@ -14,14 +14,7 @@ import { MUTED, when } from "./views";
  * Every card's title is model output and reaches the DOM as React text, same as the record page.
  */
 
-/**
- * How many cards a board reads. Core's `board()` caps at 500 of its own accord but reports
- * neither the cap nor whether it was hit, so the limit is passed from here and the count is
- * compared against it — which is why this is a constant and not a literal at the call site.
- */
-export const BOARD_LIMIT = 500;
-
-export function BoardScreen({ view, limit }: { view: BoardView; limit: number }) {
+export function BoardScreen({ view }: { view: BoardView }) {
   const { record } = view;
   const total = view.columns.reduce((sum, column) => sum + column.cards.length, 0) + view.other.length;
 
@@ -30,9 +23,7 @@ export function BoardScreen({ view, limit }: { view: BoardView; limit: number })
       <h1>{record.title ?? record.recordType}</h1>
       <p style={MUTED}>
         {total === 0 ? "No records yet." : `${total} records`}
-        {/* `board()` returns rows, not a count, so a full page is the only evidence there may be
-            more; saying "the first N" is the honest reading of it. */}
-        {total >= limit ? ` · showing the first ${limit}` : ""}
+        {view.truncated ? ` · showing the first ${view.limit}` : ""}
       </p>
 
       <div
