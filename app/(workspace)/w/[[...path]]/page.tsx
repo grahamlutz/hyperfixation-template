@@ -3,6 +3,9 @@ import type { ReactNode } from "react";
 import { workspaceRequest } from "@/workspace";
 import { addRecordLabel, archiveRecord } from "./actions";
 import { BoardScreen, BOARD_LIMIT } from "./board";
+import { DECIDE_ERROR_PARAM } from "./decide-form";
+import { ApprovalScreen, InboxScreen } from "./inbox";
+import { decideApprovals } from "./inbox-actions";
 import { HomeScreen, Placeholder, RecordScreen, Shell } from "./views";
 
 /**
@@ -17,7 +20,13 @@ import { HomeScreen, Placeholder, RecordScreen, Shell } from "./views";
  * is only ever a route the workspace does not serve — never a refusal. A stranger is redirected
  * to `/auth/sign-in` whatever they asked for.
  */
-export default async function WorkspacePage({ params }: { params: Promise<{ path?: string[] }> }) {
+export default async function WorkspacePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ path?: string[] }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { path = [] } = await params;
   const { app, session, actor } = await workspaceRequest(["/w", ...path].join("/"));
 
@@ -50,15 +59,24 @@ export default async function WorkspacePage({ params }: { params: Promise<{ path
     return shell(<BoardScreen view={view} limit={BOARD_LIMIT} />);
   }
 
-  if (route.kind === "inbox") {
-    return shell(<Placeholder title="Inbox" coming="The approval inbox is coming next." />);
-  }
-
-  if (route.kind === "approval") {
-    return shell(
-      <Placeholder title={`Approval ${route.id}`} coming="The approval inbox is coming next." />,
-    );
+  if (route.kind === "inbox" || route.kind === "approval") {
+    const view = await app.workspace.inbox({ userId: actor.userId, admin: actor.admin });
+    const error = errorOf(await searchParams);
+    if (route.kind === "inbox") {
+      return shell(<InboxScreen view={view} decideAction={decideApprovals} error={error} />);
+    }
+    // One approval is read out of the same list, which is what scopes it: a row this session may
+    // not see, and a row already decided, are both a 404 — the same answer an unknown id gets.
+    const item = view.items.find((pending) => pending.approvalId === route.id);
+    if (item === undefined) notFound();
+    return shell(<ApprovalScreen item={item} decideAction={decideApprovals} error={error} />);
   }
 
   return shell(<Placeholder title={route.page.title} coming="This page has nothing on it yet." />);
+}
+
+/** What `decideApprovals` redirected back with, if anything: a refusal, to be read as text. */
+function errorOf(searchParams: Record<string, string | string[] | undefined>): string | undefined {
+  const value = searchParams[DECIDE_ERROR_PARAM];
+  return typeof value === "string" && value !== "" ? value : undefined;
 }

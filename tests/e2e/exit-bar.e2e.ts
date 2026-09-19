@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -192,6 +193,72 @@ describe("the workspace", () => {
   }, 300_000);
 });
 
+describe("the approval inbox", () => {
+  it("approves two real drafts in one batch, with one of them edited", async () => {
+    const { context, page } = await openWithAuthenticator();
+    const drafts = await twoPendingDrafts();
+    // The edited one is the higher-scoring note's, deliberately. A decision bumps the run's
+    // attempt and the attempt runs the flow from the top, `select` included — so the run that
+    // carries its own approval through to the send is the one whose record that select still
+    // picks, which is the best-scoring unarchived row.
+    const [untouched, edited] = [drafts.items[0]!, drafts.items[1]!];
+    try {
+      await signInByEmailedCode(page, MEMBER_EMAIL);
+      await enrolPasskey(page);
+
+      await page.goto(`${server.baseUrl}/w/approvals`);
+      // Both drafts are here, each field in a box addressed to the approval it belongs to.
+      for (const draft of drafts.items) {
+        await subjectBox(page, draft.approvalId).waitFor({ state: "visible" });
+      }
+
+      // One approval on its own page — what the notifier's email links to: the same form with
+      // one row and no checkbox to clear.
+      await page.goto(`${server.baseUrl}/w/approvals/${edited.approvalId}`);
+      await subjectBox(page, edited.approvalId).waitFor({ state: "visible" });
+      expect(await page.locator('input[name="ids"][type="checkbox"]').count()).toBe(0);
+
+      await page.goto(`${server.baseUrl}/w/approvals`);
+      await subjectBox(page, edited.approvalId).fill(EDITED_SUBJECT);
+      for (const draft of drafts.items) {
+        await page.locator(`input[name="ids"][value="${draft.approvalId}"]`).check();
+      }
+      await page.getByRole("button", { name: "Approve" }).click();
+      await page.waitForURL(`${server.baseUrl}/w/approvals`);
+      // Both have left the inbox: the boxes that edited them are not on the page any more.
+      for (const draft of drafts.items) {
+        await subjectBox(page, draft.approvalId).waitFor({ state: "detached" });
+      }
+
+      // One submission was one `decide()`: one batch id over both rows, one decision key, and
+      // the edit written to the row it was typed on and to no other.
+      const rows = await approvalRows([edited.approvalId, untouched.approvalId]);
+      expect(rows.map((row) => row.status)).toEqual(["approved", "approved"]);
+      expect(new Set(rows.map((row) => row.batch_id)).size).toBe(1);
+      expect(new Set(rows.map((row) => row.decision_key)).size).toBe(1);
+      expect(rows.find((row) => row.id === edited.approvalId)?.edited_draft?.subject).toBe(
+        EDITED_SUBJECT,
+      );
+      expect(rows.find((row) => row.id === untouched.approvalId)?.edited_draft).toBeNull();
+      // A decided row is no longer in anyone's inbox, so its own page answers as an unknown id.
+      expect(await status(page, `/w/approvals/${edited.approvalId}`)).toBe(404);
+
+      // And the decision carried the runs on: the attempt it enqueued sent the edited email and
+      // left the follow-up task and the timeline row on the record's own page.
+      await reloadUntil(page, `/w/demoNote/${edited.recordId}`, `Follow up with ${edited.name}`);
+      await page.getByText("outreach.sent").first().waitFor({ state: "visible" });
+      // What went out is what was typed into the box, not what the model proposed.
+      await page.getByText(EDITED_SUBJECT).first().waitFor({ state: "visible" });
+
+      await page.getByRole("button", { name: "Label up" }).click();
+      await page.getByText("up on record").first().waitFor({ state: "visible" });
+    } finally {
+      await drafts.stop();
+      await context.close();
+    }
+  }, 600_000);
+});
+
 /**
  * A CTAP2 platform authenticator with a resident key and user verification already satisfied —
  * the shape a laptop's own biometric sensor presents. `automaticPresenceSimulation` is what
@@ -309,6 +376,180 @@ async function archivedAt(recordId: string): Promise<Date | null> {
     [recordId],
   );
   return result.rows[0]?.archived_at ?? null;
+}
+
+/** What the inbox suite types into the draft it edits. No URL, no phone, under the cap. */
+const EDITED_SUBJECT = "A question about your roofing work";
+
+/**
+ * Two notes, worth one run each. A run waits at the first approval it asks for, so a batch of
+ * two needs two runs — and the flow takes the best-scoring unarchived record, so the second
+ * note is seeded, and the second run's floor raised, after the first run has already chosen.
+ */
+const INBOX_NOTES = [
+  { name: "e2e inbox second", score: 0.71, floor: 0.5 },
+  { name: "e2e inbox first", score: 0.91, floor: 0.8 },
+];
+
+interface DraftUnderTest {
+  approvalId: number;
+  recordId: string;
+  name: string;
+}
+
+/**
+ * Two real drafts, waiting at two real gates, with a worker up to carry the runs on once the
+ * browser decides them.
+ *
+ * The drafts are the draft flow's own — `fixtures/llm/draft.json` through `demoDraftSchema` —
+ * and not SQL: what the inbox posts is parsed against that schema inside `decide()`, and a
+ * hand-written row would prove the form works against a draft nothing produced.
+ *
+ * The worker is `tests/worker-fixture.ts` rather than `worker.ts` because that one starts no
+ * schedule tick, and it runs on the web server's own `HF_BUILD_SHA`: the attempt `decide()`
+ * enqueues is dispatched by application version, so a worker on another one would leave both
+ * runs exactly where they are.
+ */
+async function twoPendingDrafts(): Promise<{ items: DraftUnderTest[]; stop(): Promise<void> }> {
+  // Imported here and not at the top: `defineApp()` reads `HF_BUILD_SHA` when the module is
+  // evaluated, and `loadEnv` only fills the environment in `beforeAll`.
+  const [{ app, recordTables }, flow, workflows, testing] = await Promise.all([
+    import("../../src/hyperfixation"),
+    import("../../src/flows/draft-demo-outreach"),
+    import("@hyperfixation/workflows"),
+    import("@hyperfixation/testing"),
+  ]);
+
+  const databaseUrl = required("DATABASE_URL");
+  const worker = testing.spawnWorker({
+    module: fileURLToPath(new URL("../worker-fixture.ts", import.meta.url)),
+    appName: app.name,
+    databaseUrl,
+    version: required("HF_BUILD_SHA"),
+  });
+  await worker.ready();
+  try {
+    app.attach({
+      pool,
+      client: await workflows.getClient({ appName: app.name, databaseUrl, recordTables }),
+    });
+    return await pendingDrafts(app, flow, workflows, worker);
+  } catch (error) {
+    // Whatever went wrong, the worker holds this app's advisory lock until it dies, and the
+    // next run of this suite cannot start one while it does.
+    await worker.kill().catch(() => undefined);
+    throw error;
+  }
+}
+
+async function pendingDrafts(
+  app: typeof import("../../src/hyperfixation").app,
+  flow: typeof import("../../src/flows/draft-demo-outreach"),
+  workflows: typeof import("@hyperfixation/workflows"),
+  worker: ReturnType<typeof import("@hyperfixation/testing").spawnWorker>,
+): Promise<{ items: DraftUnderTest[]; stop(): Promise<void> }> {
+  await pool.query("UPDATE demo_note SET archived_at = now() WHERE archived_at IS NULL");
+  const recordIds: string[] = [];
+  for (const note of INBOX_NOTES) {
+    recordIds.push(await seedInboxNote(note.name, note.score));
+    const started = await app.runs.start(flow.draftDemoOutreachFlow, {
+      minScore: note.floor,
+      limit: 1,
+    });
+    await waitForRunStatus(started.runId, "waiting");
+  }
+
+  // The two just written, newest first: a database this suite has already run against keeps
+  // whatever a killed worker left waiting, and those rows are nobody's business here.
+  const { rows } = await pool.query<{ id: number; record_id: string }>(
+    `SELECT id::int AS id, record_id FROM hf_approval
+     WHERE status = 'pending' AND record_id = ANY($1::text[]) ORDER BY id DESC LIMIT 2`,
+    [recordIds],
+  );
+  expect(rows).toHaveLength(2);
+  rows.sort((left, right) => left.id - right.id);
+  const names = new Map(recordIds.map((id, index) => [id, INBOX_NOTES[index]!.name]));
+
+  return {
+    items: rows.map((row) => ({
+      approvalId: row.id,
+      recordId: row.record_id,
+      name: names.get(row.record_id)!,
+    })),
+    stop: async () => {
+      app.detach();
+      await workflows.resetClient();
+      await worker.kill().catch(() => undefined);
+    },
+  };
+}
+
+/** `stage` is a registered one, so these rows add no column to the board suite above. */
+async function seedInboxNote(normalizedName: string, score: number): Promise<string> {
+  const { rows } = await pool.query<{ id: string }>(
+    `INSERT INTO demo_note (normalized_name, body, contact_email, score, spec_version, stage)
+     VALUES ($1, 'Family roofing contractor, two vans, north side of the city.', $2, $3, 1,
+       'scored')
+     ON CONFLICT (normalized_name) DO UPDATE SET archived_at = NULL, contact_email = $2,
+       score = $3, stage = 'scored' RETURNING id::text AS id`,
+    [normalizedName, "owner@acme-roofing.example", score],
+  );
+  const id = rows[0]!.id;
+  await pool.query(`DELETE FROM hf_label WHERE record_type = 'demoNote' AND record_id = $1`, [id]);
+  return id;
+}
+
+async function waitForRunStatus(runId: string, status: string): Promise<void> {
+  const deadline = Date.now() + 120_000;
+  for (;;) {
+    const { rows } = await pool.query<{ status: string; error: string | null }>(
+      "SELECT status, error FROM hf_run WHERE run_id = $1",
+      [runId],
+    );
+    if (rows[0]?.status === status) return;
+    if (rows[0]?.status === "failed" || Date.now() > deadline) {
+      throw new Error(`run ${runId} is ${rows[0]?.status}: ${rows[0]?.error ?? "no error"}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
+function subjectBox(page: Page, approvalId: number) {
+  return page.locator(`[name="edit:${approvalId}:subject"]`);
+}
+
+async function approvalRows(ids: number[]): Promise<
+  {
+    id: number;
+    status: string;
+    batch_id: string | null;
+    decision_key: string | null;
+    edited_draft: { subject: string } | null;
+  }[]
+> {
+  const { rows } = await pool.query<{
+    id: number;
+    status: string;
+    batch_id: string | null;
+    decision_key: string | null;
+    edited_draft: { subject: string } | null;
+  }>(
+    `SELECT id::int AS id, status, batch_id, decision_key, edited_draft FROM hf_approval
+     WHERE id = ANY($1::bigint[]) ORDER BY id`,
+    [ids],
+  );
+  return rows;
+}
+
+/** The run resumes on its own clock, so the page is asked again until its writes are there. */
+async function reloadUntil(page: Page, path: string, text: string): Promise<void> {
+  const deadline = Date.now() + 120_000;
+  for (;;) {
+    await page.goto(`${server.baseUrl}${path}`);
+    if ((await page.getByText(text).count()) > 0) return;
+    if (Date.now() > deadline) throw new Error(`"${text}" never appeared on ${path}`);
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
 }
 
 async function factorOf(email: string): Promise<string | undefined> {
