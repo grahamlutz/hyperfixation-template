@@ -223,7 +223,7 @@ export function RecordScreen({
   );
 }
 
-/** A route the workspace serves and a later PR renders: C6.5 the inbox, C6.6 the board. */
+/** A route the workspace serves and a later PR renders: C6.5 the inbox. */
 export function Placeholder({ title, coming }: { title: string; coming: string }) {
   return (
     <>
