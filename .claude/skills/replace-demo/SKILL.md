@@ -1,14 +1,17 @@
 ---
 name: replace-demo
-description: Replace the template's demo flow and demo record table with this app's own domain. Use once, right after `hf new`, when the app's first real flow or record type is being written and `recordDemoNote`/`demo_note` are still in the tree.
+description: Replace the template's demo loop and demo record table with this app's own domain. Use once, right after `hf new`, when the app's first real flow or record type is being written and the `demoBusinesses` registrations and `demo_note` are still in the tree.
 ---
 
 # Replace the demo
 
-`hf new` leaves one flow (`recordDemoNote`) and one record table (`demo_note`) in place. They
-exist so `tests/flow-restart.test.ts` has something real to run on day one — a contract suite
-with nothing registered passes vacuously, which is worse than no suite. This skill swaps them
-for the app's own domain without leaving the suite empty in between.
+`hf new` leaves a working loop in place — the `demoBusinesses` source, the `demoNotes` resolver,
+the `demoFit` spec and scorer, the three flows that chain them (`collectDemoSource`,
+`resolveDemoSource`, `scoreDemoNotes`) and one record table (`demo_note`). It exists so
+`tests/flow-restart.test.ts` has something real to run on day one — a contract suite with nothing
+registered passes vacuously, which is worse than no suite — and so each kind of registration has
+one worked example to read. This skill swaps it for the app's own domain without leaving the suite
+empty in between.
 
 ## Do it in this order
 
@@ -69,15 +72,27 @@ a test artifact: read `CLAUDE.md`'s first section before changing the test.
 
 Delete, in one commit:
 
-- `src/flows/demo.ts` and its entry in `src/hyperfixation.ts`'s `flows`
-- `fixtures/recordDemoNote.json`
+- `src/flows/collect-demo-source.ts`, `src/flows/resolve-demo-source.ts`,
+  `src/flows/score-demo-notes.ts` and their entries in `src/hyperfixation.ts`'s `flows`
+- `fixtures/collectDemoSource.json`, `fixtures/resolveDemoSource.json`,
+  `fixtures/scoreDemoNotes.json`
+- `src/sources/demo.ts`, `src/resolvers/demo.ts`, `src/specs/demo.ts`, `src/scorers/demo.ts` and
+  their entries in `src/hyperfixation.ts`'s `sources`, `resolvers`, `specs`, `scorers` and
+  `schedules` — the three demo schedules go with the flows they fire
+- `prompts/score.md` and `fixtures/llm/score.json`, together: a prompt file with no fixture is a
+  `FixtureMissing` on every keyless run, and a fixture with no prompt is never read
+- `fixtures/sources/demoBusinesses.json`
 - `src/db/schema/demo.ts`, its `export` in `src/db/schema/index.ts`, and the `demo_note` entry
   in `src/hyperfixation.ts`'s `records`
 - `demo_note` from `APP_TABLES` in `tests/flow-restart.test.ts`, replacing it with the tables
-  the real flows write
+  the real flows write — and the "left the demo loop's own rows behind" test in the same file,
+  replaced by the equivalent assertion on what the app's own loop produces
 - `tests/records-archive.test.ts`, repointed at a real record type rather than deleted: it is
   what catches a record table that never adopted `hfRecordColumns()`, which fails as a `42703`
   from `records.archive()` and in no other suite
+
+Keep `src/llm.ts`: it is the app's provider registry, not part of the demo. Only the model name
+and prompt name inside a scorer are.
 
 Add a migration dropping `demo_note` — do not edit `drizzle/0000_demo_note.sql`. A migration
 that has run somewhere is history; rewriting it makes the journal disagree with the database.

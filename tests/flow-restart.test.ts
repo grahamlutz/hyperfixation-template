@@ -32,8 +32,10 @@ import { app, recordTables } from "../src/hyperfixation";
  * value moves. A flow that has to be value-idempotent needs its own assertion on top of this one.
  *
  * The flows run in the order `src/hyperfixation.ts` registers them, and that order is load-
- * bearing once the app's fixtures chain — a flow that collects rows has to run before the one
- * whose fixture expects to find them.
+ * bearing because the demo's fixtures chain: `collectDemoSource` stages the source's rows,
+ * `resolveDemoSource` turns them into the `demo_note` records, and those are what
+ * `scoreDemoNotes` finds to score. Nothing here resets the database between flows on purpose —
+ * the loop is what is under test, not three flows in isolation.
  */
 
 const FIXTURES = new URL("../fixtures/", import.meta.url);
@@ -68,6 +70,13 @@ describe("flow-restart", () => {
     await worker.ready();
 
     pool = new Pool({ connectionString: database.applicationUrl, max: 2 });
+
+    // What `hf bootstrap` seeds, and what `llm.run`'s gate needs: `hf_budget_period` is created
+    // from `hf_app_state.budget_usd` by the month's first call, and there is nothing to copy
+    // without this row. A fixture answer bills zero tokens, but the gate still *reserves* the
+    // priced model's estimate before the call settles at 0 — so the budget has to cover the
+    // estimate of every call a flow makes, not the nothing they end up costing.
+    await pool.query("INSERT INTO hf_app_state (id, paused, budget_usd) VALUES (1, false, '100')");
     client = await getClient({ appName: database.appName, databaseUrl: database.applicationUrl });
     app.attach({ pool, client });
   }, 120_000);
@@ -109,4 +118,24 @@ describe("flow-restart", () => {
     },
     180_000,
   );
+
+  /**
+   * What the restart assertion cannot say. `runFlowSync` counts rows, so three flows that each
+   * did nothing pass it just as well as three that ran the loop — and `scoreDemoNotes` in
+   * particular is trivially stable if `resolveDemoSource` created no records for it to find.
+   * This is the values half: the two fixture businesses became two records, and each one carries
+   * the score `fixtures/llm/score.json` answers with under spec version 1.
+   */
+  it("left the demo loop's own rows behind", async () => {
+    const { rows } = await pool.query<{
+      normalized_name: string;
+      score: number;
+      spec_version: number;
+    }>("SELECT normalized_name, score, spec_version FROM demo_note ORDER BY normalized_name");
+
+    expect(rows).toEqual([
+      { normalized_name: "acme roofing", score: 0.82, spec_version: 1 },
+      { normalized_name: "brightleaf landscaping", score: 0.21, spec_version: 1 },
+    ]);
+  });
 });

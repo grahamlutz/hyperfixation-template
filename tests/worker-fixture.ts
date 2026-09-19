@@ -3,10 +3,11 @@
  * logic, because `startWorker()` cannot be tested in-process — DBOS refuses a second launch,
  * and the advisory lock is released by process death and nothing else.
  *
- * It differs from `worker.ts` in exactly one way: the app name and database URL come from the
- * harness's per-test database rather than from the environment. Everything the restart
- * assertion depends on — the flow registrations, the step pool's fence, `HF_PROCESS=worker` —
- * is the production path.
+ * It differs from `worker.ts` in two ways: the app name and database URL come from the harness's
+ * per-test database rather than from the environment, and it starts no schedule tick — a schedule
+ * firing mid-test would start runs whose rows the restart assertion counts. Everything the
+ * assertion depends on — the flow registrations, the step pool's fence, `HF_PROCESS=worker` — is
+ * the production path.
  */
 import path from "node:path";
 import { startWorker } from "@hyperfixation/workflows";

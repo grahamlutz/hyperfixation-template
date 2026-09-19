@@ -1,0 +1,30 @@
+{
+  "responses": [
+    {
+      "when": { "userTextIncludes": "acme roofing" },
+      "json": {
+        "score": 0.82,
+        "explanation": "Owner-run, keeps its own premises, and the contact address is a named one."
+      },
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    {
+      "when": { "userTextIncludes": "brightleaf landscaping" },
+      "json": {
+        "score": 0.21,
+        "explanation": "Reads as a directory listing with no named contact, and it subcontracts."
+      },
+      "inputTokens": 0,
+      "outputTokens": 0
+    },
+    {
+      "json": {
+        "score": 0.5,
+        "explanation": "No fixture entry matched this business, so this is the default answer."
+      },
+      "inputTokens": 0,
+      "outputTokens": 0
+    }
+  ]
+}

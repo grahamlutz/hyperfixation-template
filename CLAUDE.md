@@ -29,14 +29,20 @@ every commit. If a change makes it red, the change is wrong far more often than 
 |---|---|
 | `src/hyperfixation.ts` | `defineApp` — the registry of everything this app has |
 | `src/flows/` | Flows. `pnpm gen` scaffolds one and registers it |
+| `src/sources/` | `defineSource` — what a collect flow streams into `hf_source_record` |
+| `src/resolvers/` | `defineResolver` — which record a loaded row is, and how to create or update it |
+| `src/specs/` / `src/scorers/` | `defineSpec` and `defineScorer` — the criteria, and the call that judges against them |
+| `src/llm.ts` | The app's one `createLlm`: the provider registry and `prompts/` |
 | `src/db/schema/` | This app's own tables. Never an `hf_*` table |
 | `src/env.ts` | `REQUIRED_ENV`, the env contract both compose files are held to |
 | `src/auth.ts` | better-auth and `requireSession()` — this app's one session boundary |
 | `drizzle/` | This app's migrations. `pnpm db:generate` after a schema edit |
 | `prompts/` | Prompt files, addressed by content hash |
 | `fixtures/` | One per flow, named for the flow. The contract suite needs it |
+| `fixtures/llm/` | `<promptName>.json`, served whenever no provider key is set |
+| `fixtures/sources/` | What the demo source streams, in place of a real API |
 | `app/` | The two catch-all routes, `/auth/*`, and the two API mounts. Almost nothing per-app |
-| `worker.ts` / `migrate.ts` | The worker and the one-shot migrator |
+| `worker.ts` / `migrate.ts` | The worker — which also drives `app.schedules` — and the one-shot migrator |
 
 ## Working here
 
@@ -64,6 +70,10 @@ launch in one process, and the advisory lock is released by process death and no
 
 ## Replacing the demo
 
-The template ships one flow (`recordDemoNote`) and one record table (`demo_note`) so the
-contract suite has something real to hold. `.claude/skills/replace-demo/` is the guided way to
-swap them for this app's own domain.
+The template ships the first half of a working loop, on one record table (`demo_note`), so the
+contract suite has something real to hold and so the shape of every registration is visible
+rather than described: a source, a resolver, a spec, a scorer, and the three flows that chain
+them — `collectDemoSource`, `resolveDemoSource`, `scoreDemoNotes`, each on a schedule. With no
+provider key set the scorer's calls come from `fixtures/llm/`, so it all runs on a laptop and in
+CI for nothing. `.claude/skills/replace-demo/` is the guided way to swap it for this app's own
+domain.

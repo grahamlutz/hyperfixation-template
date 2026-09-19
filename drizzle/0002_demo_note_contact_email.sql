@@ -1,0 +1,1 @@
+ALTER TABLE "demo_note" ADD COLUMN "contact_email" text;

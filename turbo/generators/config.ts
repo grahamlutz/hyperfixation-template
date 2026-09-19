@@ -47,7 +47,9 @@ export default function generator(plop: PlopTypes.NodePlopAPI): void {
       {
         type: "append",
         path: "src/hyperfixation.ts",
-        pattern: /^import \{ demoFlow \}.*$/m,
+        // The sentinel comment above the flow imports, rather than one of those imports: a
+        // generated flow must not anchor on a demo the app is about to delete.
+        pattern: /^\/\/ `pnpm gen` appends a new flow's import.*$/m,
         template: 'import { {{name}}Flow } from "./flows/{{kebabCase name}}";',
       },
       {
