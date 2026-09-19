@@ -37,12 +37,14 @@ function view(overrides: Partial<BoardView> = {}): BoardView {
       { stage: record.stages[2], cards: [] },
     ],
     other: [],
+    limit: 500,
+    truncated: false,
     ...overrides,
   };
 }
 
-function render(board: BoardView, limit = 500): string {
-  return renderToStaticMarkup(<BoardScreen view={board} limit={limit} />);
+function render(board: BoardView): string {
+  return renderToStaticMarkup(<BoardScreen view={board} />);
 }
 
 /** The column titles in the order they are rendered, out of `<h2>Scored <span …>2</span></h2>`. */
@@ -101,11 +103,15 @@ describe("the pipeline board", () => {
     expect(headings(empty)).toEqual(["New", "Scored", "Drafted"]);
   });
 
-  it("says the board is truncated when it holds a whole page of cards", () => {
+  it("says the board is truncated only when core says it was", () => {
     const cards = Array.from({ length: 3 }, (_, index) => card(String(index), "new"));
-    const full = view({ columns: [{ stage: record.stages[0], cards }], other: [] });
+    const columns = [{ stage: record.stages[0], cards }];
 
-    expect(render(full, 3)).toContain("showing the first 3");
-    expect(render(full, 4)).not.toContain("showing the first");
+    expect(render(view({ columns, other: [], limit: 3, truncated: true }))).toContain(
+      "showing the first 3",
+    );
+    expect(render(view({ columns, other: [], limit: 3, truncated: false }))).not.toContain(
+      "showing the first",
+    );
   });
 });

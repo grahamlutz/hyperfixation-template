@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { workspaceRequest } from "@/workspace";
 import { addRecordLabel, archiveRecord } from "./actions";
-import { BoardScreen, BOARD_LIMIT } from "./board";
+import { BoardScreen } from "./board";
 import { DECIDE_ERROR_PARAM } from "./decide-form";
 import { ApprovalScreen, InboxScreen } from "./inbox";
 import { decideApprovals } from "./inbox-actions";
@@ -55,8 +55,8 @@ export default async function WorkspacePage({
   }
 
   if (route.kind === "board") {
-    const view = await app.workspace.board(route.record.recordType, { limit: BOARD_LIMIT });
-    return shell(<BoardScreen view={view} limit={BOARD_LIMIT} />);
+    const view = await app.workspace.board(route.record.recordType);
+    return shell(<BoardScreen view={view} />);
   }
 
   if (route.kind === "inbox" || route.kind === "approval") {
