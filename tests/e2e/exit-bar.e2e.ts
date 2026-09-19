@@ -197,7 +197,11 @@ describe("the approval inbox", () => {
   it("approves two real drafts in one batch, with one of them edited", async () => {
     const { context, page } = await openWithAuthenticator();
     const drafts = await twoPendingDrafts();
-    const [edited, untouched] = [drafts.items[0]!, drafts.items[1]!];
+    // The edited one is the higher-scoring note's, deliberately. A decision bumps the run's
+    // attempt and the attempt runs the flow from the top, `select` included — so the run that
+    // carries its own approval through to the send is the one whose record that select still
+    // picks, which is the best-scoring unarchived row.
+    const [untouched, edited] = [drafts.items[0]!, drafts.items[1]!];
     try {
       await signInByEmailedCode(page, MEMBER_EMAIL);
       await enrolPasskey(page);
@@ -242,10 +246,12 @@ describe("the approval inbox", () => {
       // And the decision carried the runs on: the attempt it enqueued sent the edited email and
       // left the follow-up task and the timeline row on the record's own page.
       await reloadUntil(page, `/w/demoNote/${edited.recordId}`, `Follow up with ${edited.name}`);
-      await page.getByText("outreach.sent").waitFor({ state: "visible" });
+      await page.getByText("outreach.sent").first().waitFor({ state: "visible" });
+      // What went out is what was typed into the box, not what the model proposed.
+      await page.getByText(EDITED_SUBJECT).first().waitFor({ state: "visible" });
 
       await page.getByRole("button", { name: "Label up" }).click();
-      await page.getByText("up on record").waitFor({ state: "visible" });
+      await page.getByText("up on record").first().waitFor({ state: "visible" });
     } finally {
       await drafts.stop();
       await context.close();
@@ -478,12 +484,14 @@ async function pendingDrafts(
   };
 }
 
+/** `stage` is a registered one, so these rows add no column to the board suite above. */
 async function seedInboxNote(normalizedName: string, score: number): Promise<string> {
   const { rows } = await pool.query<{ id: string }>(
-    `INSERT INTO demo_note (normalized_name, body, contact_email, score, spec_version)
-     VALUES ($1, 'Family roofing contractor, two vans, north side of the city.', $2, $3, 1)
+    `INSERT INTO demo_note (normalized_name, body, contact_email, score, spec_version, stage)
+     VALUES ($1, 'Family roofing contractor, two vans, north side of the city.', $2, $3, 1,
+       'scored')
      ON CONFLICT (normalized_name) DO UPDATE SET archived_at = NULL, contact_email = $2,
-       score = $3 RETURNING id::text AS id`,
+       score = $3, stage = 'scored' RETURNING id::text AS id`,
     [normalizedName, "owner@acme-roofing.example", score],
   );
   const id = rows[0]!.id;
