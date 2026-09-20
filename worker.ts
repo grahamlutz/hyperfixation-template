@@ -3,7 +3,10 @@
 // this is the same for the two entrypoints Next never sees. Values already in the environment
 // — compose's, and the `HF_BUILD_SHA` `hf dev` invents — win over the file.
 import "./src/boot-env";
-// Second, for effect, and before every import below it: Sentry wants to be initialised ahead of
+// Second, for effect: `console.error`/`console.warn` filtered of this app's own secrets, above
+// everything that logs and below the file that decides what the secrets are.
+import "./src/boot-scrub";
+// Third, for effect, and before every import below it: Sentry wants to be initialised ahead of
 // what it reports on, and `boot-env` is the one thing it cannot go ahead of — the DSN is in `.env`.
 import "./src/boot-sentry";
 import path from "node:path";

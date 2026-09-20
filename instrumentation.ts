@@ -7,6 +7,10 @@
  * `startWorker()` refuses on that, but the rule is worth stating where someone would break it.
  */
 
+// Static, unlike the two below it: `src/scrub.ts` reads `process.env` and nothing else, so it
+// resolves on either runtime and adds nothing to the edge bundle worth deferring.
+import { installConsoleScrub, scrubEvent } from "./src/scrub";
+
 /**
  * The same three names as `LANGFUSE_ENV` in `@hyperfixation/workflows`, repeated rather than
  * imported: the gate has to be decidable before the dynamic import, or a web process with
@@ -23,6 +27,9 @@ let sentryInitialised = false;
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
+  // Before Sentry, and unconditional: it costs nothing when no secret is set, and a process
+  // with the DSN unset still logs.
+  installConsoleScrub();
   await initSentry();
 
   if (langfuseRegistered) return;
@@ -57,6 +64,11 @@ async function initSentry(): Promise<void> {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     release: process.env.HF_BUILD_SHA,
+    // The last thing to touch an event, and the worker sets the same one: everything below
+    // narrows what is collected, this takes this app's own secrets out of what was collected
+    // anyway — a crash message quoting a connection string is how `SMTP_URL` reached an issue
+    // once. No `beforeSendTransaction`: `tracesSampleRate` is 0, so there is no transaction.
+    beforeSend: (event) => scrubEvent(event),
     // Errors only. A trace would sample the request that carried a draft through the workspace,
     // and the spans worth having are Langfuse's, which already carry the run.
     tracesSampleRate: 0,
