@@ -1,3 +1,5 @@
+import { scrubEvent } from "./scrub";
+
 /**
  * The worker's Sentry, and only the worker's: the web initialises `@sentry/nextjs` from
  * `instrumentation.ts`, which Next calls and which never runs here.
@@ -8,7 +10,7 @@
  *
  * **ESM caveat.** Sentry's docs want `init()` before the modules it patches are loaded, which a
  * plain import cannot promise: ESM evaluates every import before any body, so the earliest this
- * can run is `src/boot-sentry.ts`, second in `worker.ts` — after `@sentry/node` itself but
+ * can run is `src/boot-sentry.ts`, third in `worker.ts` — after `@sentry/node` itself but
  * before `@hyperfixation/workflows`. Auto-instrumentation of `pg`/`http` would need
  * `--import @sentry/node/preload` on the command line, in `pnpm worker` and the image's `CMD`
  * both. It buys nothing here: `tracesSampleRate` is 0, and error capture — the global handlers
@@ -21,6 +23,10 @@ export async function initSentry(): Promise<boolean> {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     release: process.env.HF_BUILD_SHA,
+    // The last thing to touch an event. Everything below narrows what is collected; this takes
+    // this app's own secrets out of whatever was collected anyway — a crash message quoting a
+    // connection string is how `SMTP_URL` reached an issue once.
+    beforeSend: (event) => scrubEvent(event),
     // Errors only; the spans worth having are Langfuse's, which `startWorker()` registers and
     // which carry the run id the trace would otherwise be anonymous without.
     tracesSampleRate: 0,

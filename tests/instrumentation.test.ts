@@ -30,7 +30,10 @@ const KEYS = {
   LANGFUSE_SECRET_KEY: "sk-lf-fake",
 };
 
-const MANAGED = ["NEXT_RUNTIME", "SENTRY_DSN", ...Object.keys(KEYS)];
+/** Shaped like the URL that reached an issue on 2026-09-20; nothing behind it. */
+const SMTP_URL = "cloudflare-email://cfut_0123456789abcdef@acct0123456789";
+
+const MANAGED = ["NEXT_RUNTIME", "SENTRY_DSN", "SMTP_URL", ...Object.keys(KEYS)];
 const saved = new Map<string, string | undefined>();
 
 /**
@@ -53,6 +56,7 @@ beforeEach(() => {
   for (const name of Object.keys(KEYS)) process.env[name] = "";
   process.env.NEXT_RUNTIME = "nodejs";
   process.env.SENTRY_DSN = "";
+  delete process.env.SMTP_URL;
   registerLangfuse.mockClear();
   webInit.mockClear();
   workerInit.mockClear();
@@ -148,6 +152,45 @@ describe("Sentry in the web", () => {
 
     // `RequestData` stays: `sendDefaultPii: false` is what empties it of bodies and PII.
     expect(kept).toEqual(["RequestData", "ContextLines"]);
+  });
+});
+
+/**
+ * That both inits carry the hook, and that the hook is the one `scrub.test.ts` describes — the
+ * wiring is the half a reviewer cannot read off either file.
+ */
+describe("Sentry's beforeSend", () => {
+  function scrubbed(init: typeof webInit): unknown {
+    const { beforeSend } = init.mock.calls[0]![0] as {
+      beforeSend: (event: unknown) => unknown;
+    };
+    return beforeSend({
+      message: `boot failed: ${SMTP_URL}`,
+      exception: { values: [{ value: `at createTransport(${SMTP_URL})` }] },
+    });
+  }
+
+  const clean = {
+    message: "boot failed: [redacted:SMTP_URL]",
+    exception: { values: [{ value: "at createTransport([redacted:SMTP_URL])" }] },
+  };
+
+  it("scrubs the web's events", async () => {
+    process.env.SENTRY_DSN = DSN;
+    process.env.SMTP_URL = SMTP_URL;
+
+    await (await freshRegister())();
+
+    expect(scrubbed(webInit)).toEqual(clean);
+  });
+
+  it("scrubs the worker's events", async () => {
+    process.env.SENTRY_DSN = DSN;
+    process.env.SMTP_URL = SMTP_URL;
+
+    await (await freshInitSentry())();
+
+    expect(scrubbed(workerInit)).toEqual(clean);
   });
 });
 
