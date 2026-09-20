@@ -9,4 +9,6 @@ out
 .DS_Store
 
 # `.git` is deliberately NOT ignored: the Dockerfile's SOURCE_COMMIT fallback is
-# `git rev-parse HEAD` in the build stage, and it needs a repository to read.
+# `git rev-parse HEAD` in the build stage, and it needs a repository to read. That is a local
+# `docker build`'s path only — a Coolify build context has no `.git`, and its commit comes from
+# the SOURCE_COMMIT environment entry `hf deploy` writes.

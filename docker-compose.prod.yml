@@ -5,7 +5,9 @@
 # deliberate: a per-service subset would let a var reach one container and not another, which
 # is the one deploy fault the redeploy sequence cannot see.
 #
-# Values come from Coolify's environment; nothing here holds a secret.
+# Values come from Coolify's environment; nothing here holds a secret. `SOURCE_COMMIT` is one
+# of them: referencing it here is what makes Coolify create the entry, and `hf deploy` writes
+# the commit into it before every deploy — a Coolify build is passed no commit of its own.
 
 x-app: &app
   image: ${DOCKER_IMAGE:-__APP_NAME__}:${SOURCE_COMMIT:-latest}

@@ -16,8 +16,9 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
 
 FROM base AS builder
-# `git` is here for the SOURCE_COMMIT fallback below, and `.git` is deliberately not in
-# `.dockerignore` for the same reason.
+# `git` is here for the SOURCE_COMMIT fallback below, which is a local `docker build`'s only
+# source of a commit; `.git` is deliberately not in `.dockerignore` for the same reason. A
+# Coolify build has neither — see the note on the arg.
 RUN apk add --no-cache git
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -35,10 +36,17 @@ RUN HF_PROCESS=web \
     EMAIL_FROM=unused@example.com \
     pnpm build
 
-# Coolify is expected to pass the deployed commit as this build arg. It is unverified that it
-# does, so the build falls back to the checkout's own HEAD and, failing that, to nothing —
-# `startWorker()` refuses an `HF_BUILD_SHA` shorter than 7 characters, so a build that resolved
-# neither fails loudly at the first deploy rather than serving under a version it cannot name.
+# Where the commit comes from, as measured on a real box (Coolify 4.3.21, docker-compose build
+# pack): Coolify passes **no** commit to a compose build and its build context holds no `.git`,
+# so neither this arg nor the fallback below resolves there. What sets it is `hf deploy` (and
+# `hf new`), which writes the app's Coolify environment entry `SOURCE_COMMIT` before every
+# deploy — the entry Coolify created because `docker-compose.prod.yml` references
+# `${SOURCE_COMMIT:-}` — and push-to-deploy is off, so no deploy happens without it.
+#
+# The fallback stays for a local `docker build` in a checkout that has its `.git`, and failing
+# both the sha is empty: `startWorker()` refuses an `HF_BUILD_SHA` shorter than 7 characters, so
+# a build that resolved neither fails loudly at the first deploy rather than serving under a
+# version it cannot name.
 #
 # Last in this stage, not before `pnpm build`: the arg changes every commit, and anything after
 # it rebuilds with it.
@@ -73,10 +81,12 @@ COPY --from=builder /app/prompts ./prompts
 COPY --from=builder /app/fixtures ./fixtures
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-# The build arg again, because an ARG does not cross a stage. When Coolify supplies it the
-# value is baked here, exactly as the plan describes; when it does not, the entrypoint reads
-# the file the builder wrote. Both come after every `COPY` above for the same reason the
-# builder resolves the sha last: they change every commit, and the copies are the slow part.
+# The build arg again, because an ARG does not cross a stage. When the build was given one the
+# value is baked here; when it was not — every Coolify build — compose passes `HF_BUILD_SHA`
+# through from the environment entry `hf deploy` wrote, and a local build with no arg at all
+# falls back to the file the builder wrote. Both come after every `COPY` above for the same
+# reason the builder resolves the sha last: they change every commit, and the copies are the
+# slow part.
 COPY --from=builder /app/.hf-build-sha ./.hf-build-sha
 ARG SOURCE_COMMIT=""
 ENV HF_BUILD_SHA=$SOURCE_COMMIT
