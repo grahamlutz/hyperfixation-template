@@ -6,7 +6,7 @@ import {
   type StepContext,
 } from "@hyperfixation/workflows";
 import { sql } from "drizzle-orm";
-import { createTransport, type Transporter } from "nodemailer";
+import { sendMail } from "./email";
 import { requireEnv } from "./env";
 
 /**
@@ -57,27 +57,19 @@ export async function approvalRecipients(
 }
 
 /**
- * The app's transport for a notice, built on first use — `worker.ts` is not the only importer
- * and there is no environment to read at import time.
+ * A notice goes out through `src/email.ts`'s one sender, which is what reads `SMTP_URL` and
+ * picks the transport — a private one here is how a `cloudflare-email://` URL reached
+ * nodemailer and killed the worker mid-gate.
  *
- * `SMTP_URL` unset is nodemailer's `jsonTransport`, for the reason `src/channels/email.ts`
- * gives at length: the message is serialized rather than delivered, so `pnpm test` and a laptop
- * with nothing running notify without a mail server and without reaching anyone.
+ * The sender is read with `process.env` and defaulted rather than through `requireEnv`: a
+ * laptop with `SMTP_URL` unset serializes the notice instead of delivering it, so there is no
+ * envelope for `EMAIL_FROM` to be the sender of.
  */
-let transport: Transporter | undefined;
-
-function transporter(): Transporter {
-  const url = process.env.SMTP_URL;
-  transport ??=
-    url === undefined || url === ""
-      ? createTransport({ jsonTransport: true })
-      : createTransport(url);
-  return transport;
-}
+const LOCAL_SENDER = "approvals@localhost";
 
 async function sendNotice(message: ApprovalMessage): Promise<void> {
-  await transporter().sendMail({
-    from: process.env.EMAIL_FROM ?? "approvals@localhost",
+  await sendMail({
+    from: process.env.EMAIL_FROM ?? LOCAL_SENDER,
     to: message.to,
     subject: message.subject,
     text: message.text,
