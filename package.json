@@ -25,9 +25,9 @@
   "dependencies": {
     "@better-auth/passkey": "1.7.5",
     "@dbos-inc/dbos-sdk": "4.27.6",
-    "@hyperfixation/admin": "^0.1.7",
+    "@hyperfixation/admin": "^0.1.8",
     "@hyperfixation/ai": "^0.1.8",
-    "@hyperfixation/auth": "^0.1.7",
+    "@hyperfixation/auth": "^0.1.8",
     "@hyperfixation/core": "^0.1.8",
     "@hyperfixation/db": "^0.1.8",
     "@hyperfixation/workflows": "^0.1.8",
@@ -44,7 +44,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@hyperfixation/cli": "^0.1.7",
+    "@hyperfixation/cli": "^0.1.8",
     "@hyperfixation/eslint-config": "^0.1.8",
     "@hyperfixation/testing": "^0.1.8",
     "@turbo/gen": "^2.10.13",
