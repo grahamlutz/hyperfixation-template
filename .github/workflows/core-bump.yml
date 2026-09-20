@@ -1,16 +1,19 @@
 name: Core bump
 
 # Every `@hyperfixation/*` package is released in lockstep, so an app upgrades all of them or
-# none of them: a mixed set is a combination nothing was tested against. `hyperfixation-bot`
-# dispatches this on release; the manual input is for pinning to an older version deliberately.
+# none of them: a mixed set is a combination nothing was tested against, and
+# `tests/core-version.test.ts` is what holds the installed tree to that.
+#
+# The routine bump PRs are opened by core's own release job, under its GitHub App token. This
+# workflow is the deliberate manual path only — pinning to a version, or re-running a bump the
+# release did not open — which is why the `repository_dispatch` trigger it used to carry is
+# gone: two openers racing on one `core-bump/<version>` branch is one PR too many.
 on:
-  repository_dispatch:
-    types: [hyperfixation-core-release]
   workflow_dispatch:
     inputs:
       version:
-        description: The @hyperfixation/* version to move to
-        required: true
+        description: The @hyperfixation/* version to move to. Empty means the latest published
+        required: false
 
 permissions:
   contents: write
@@ -29,13 +32,12 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - id: version
-        run: |
-          VERSION="${{ inputs.version || github.event.client_payload.version }}"
-          test -n "$VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Move every @hyperfixation/* package together
+        id: version
+        # Through the environment, not `${{ }}` inside the script: a workflow_dispatch input is
+        # attacker-controlled text as far as the shell is concerned.
+        env:
+          PIN: ${{ inputs.version }}
         run: |
           set -eu
           PACKAGES=$(node -e '
@@ -44,14 +46,28 @@ jobs:
             console.log(Object.keys(all).filter((n) => n.startsWith("@hyperfixation/")).join(" "));
           ')
           test -n "$PACKAGES"
-          pnpm update --latest $PACKAGES
+          if [ -n "$PIN" ]; then
+            SPECS=""
+            for p in $PACKAGES; do SPECS="$SPECS $p@$PIN"; done
+            pnpm update $SPECS
+          else
+            pnpm update --latest $PACKAGES
+          fi
+          pnpm install --frozen-lockfile=false
+          # Read back rather than trust the input: with none given, `--latest` is what decided.
+          # By path: the package's `exports` map makes `@hyperfixation/core/package.json` a
+          # resolver error.
+          VERSION=$(node -e 'console.log(require("./node_modules/@hyperfixation/core/package.json").version)')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       # The PR is opened whether or not this passes; a bump that breaks the app's contract
       # suite is exactly the thing the PR exists to show, and a silent failure here would
       # hide it. `ci.yml` is what actually gates the merge.
-      - run: pnpm install --frozen-lockfile=false && pnpm test
+      - run: pnpm test
         continue-on-error: true
 
+      # Opened with GITHUB_TOKEN, so this PR does not trigger `ci.yml` — run this path with a
+      # PAT in `token:` when the bump needs CI, or push an empty commit to the branch.
       - uses: peter-evans/create-pull-request@v8
         with:
           branch: core-bump/${{ steps.version.outputs.version }}
