@@ -169,14 +169,19 @@ export async function startProdStack(options: ProdStackOptions = {}): Promise<Pr
       },
       exitCodeOf: (service) => exitCodeOf(compose, service),
       logsOf: (service) => compose(["logs", "--no-color", service]),
+      // Each step runs whatever the ones before it did, so a failure anywhere still leaves no
+      // container, no database and no role behind — and the first failure is what surfaces.
       stop: async () => {
-        try {
-          await compose(["down", "-v", "--remove-orphans", "--rmi", "local", "-t", "10"]);
-        } finally {
-          await pool?.end();
-          await dropDatabase();
-          await rm(parent, { recursive: true, force: true });
+        const failures: unknown[] = [];
+        for (const step of [
+          () => compose(["down", "-v", "--remove-orphans", "--rmi", "local", "-t", "10"]),
+          () => pool?.end() ?? Promise.resolve(),
+          dropDatabase,
+          () => rm(parent, { recursive: true, force: true }),
+        ]) {
+          await step().catch((error: unknown) => failures.push(error));
         }
+        if (failures.length > 0) throw failures[0];
       },
     };
 

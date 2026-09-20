@@ -74,6 +74,10 @@ describe.skipIf(!docker)("the prod compose stack", () => {
    * anywhere near the grace period would mean the handler never ran and SIGKILL did the work.
    */
   it("stops an idle worker in under five seconds", async () => {
+    // Idle is asserted rather than assumed: a worker that has just launched fires every
+    // schedule once, and a run still in flight is exactly what the drain is allowed to wait on.
+    await waitForNoRunningRuns();
+
     const started = Date.now();
     await stack.compose(["stop", "worker"]);
     const elapsed = Date.now() - started;
@@ -81,4 +85,18 @@ describe.skipIf(!docker)("the prod compose stack", () => {
     expect(await stack.exitCodeOf("worker")).toBe(0);
     expect(elapsed).toBeLessThan(5_000);
   });
+
+  async function waitForNoRunningRuns(): Promise<void> {
+    const deadline = Date.now() + 120_000;
+    for (;;) {
+      const { rows } = await stack.pool.query<{ n: string }>(
+        "SELECT count(*)::text AS n FROM hf_run WHERE status = 'running'",
+      );
+      if (rows[0]?.n === "0") return;
+      if (Date.now() > deadline) {
+        throw new Error(`${rows[0]?.n ?? "?"} runs still running; the worker is not idle`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
 });
