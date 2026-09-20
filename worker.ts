@@ -10,6 +10,7 @@ import path from "node:path";
 import { startWorker } from "@hyperfixation/workflows";
 import { requireEnv } from "./src/env";
 import { app, recordTables } from "./src/hyperfixation";
+import { reportLlmMode } from "./src/llm";
 import { approvalNotifier } from "./src/notify";
 
 /**
@@ -22,8 +23,8 @@ import { approvalNotifier } from "./src/notify";
  * can dispatch a workflow the instant `launch()` returns, and a flow it has no registration
  * for is a run that never moves.
  *
- * Nothing here catches. A worker that cannot prove it is alone, or cannot name the version it
- * is running, must exit non-zero rather than serve.
+ * Nothing here catches, bar the LLM-mode write below. A worker that cannot prove it is alone, or
+ * cannot name the version it is running, must exit non-zero rather than serve.
  */
 
 // Resolved against the working directory rather than this module: the Dockerfile puts the
@@ -43,6 +44,10 @@ const worker = await startWorker({
 // The worker's control plane: the pool `startWorker()` built and its own `DBOSClient`. The web
 // attaches the other pair. No export of any package resolves to this pool; it exists only here.
 app.attach({ pool: worker.control.pool, client: worker.client });
+
+// After the registry is built — importing the app above reaches `src/llm.ts` — and on the pool
+// `startWorker()` opened, which is the only one this process has.
+await reportLlmMode(worker.control.pool);
 
 /**
  * The schedules, driven by a plain timer outside DBOS — the same shape `startReconciler()` has,

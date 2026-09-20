@@ -37,7 +37,7 @@ restart just as well as four that ran the loop.
 | `src/specs/` / `src/scorers/` | `defineSpec` and `defineScorer` — the criteria, and the call that judges against them |
 | `src/approvals/` | One file per approval type: the Zod schema an edited draft is parsed against |
 | `src/channels/` | `ActionChannel`s — everything that leaves the app from inside a run |
-| `src/llm.ts` | The app's one `createLlm`: the provider registry and `prompts/` |
+| `src/llm.ts` | The app's one `createLlm`: the provider registry and `prompts/`, and `reportLlmMode()` — what the worker's boot writes where `/api/status` reads it as `llm.mode` |
 | `src/db/schema/` | This app's own tables. Never an `hf_*` table |
 | `src/env.ts` | `REQUIRED_ENV`, the env contract both compose files are held to |
 | `src/auth.ts` | better-auth and `requireSession()` — this app's one session boundary |
@@ -48,14 +48,14 @@ restart just as well as four that ran the loop.
 | `fixtures/` | One per flow, named for the flow. The contract suite needs it |
 | `fixtures/llm/` | `<promptName>.json`, served whenever no provider key is set |
 | `fixtures/sources/` | What the demo source streams, in place of a real API |
-| `tests/` | `contract` (the loop once, end to end), `flow-restart` (every flow twice), `draft-approval` (past the gate), `demo-draft-schema` (the validators alone), `records-archive` (the mixin), `workspace-render` (model output rendered as text), `inbox-render` (the same claim about the boxes that edit it), `inbox-decide` (one submission, one batch, one replay key), `board-render` (the board's columns, in the record type's order), `workspace-actor` (the session as an actor), `notify` (who a gate is told to, and the link), `admin-budget` (a member refused, an admin's value written and audited), `admin-budget-render` (the form's markup), `compose-envs` (the env contract), `instrumentation` (both processes' telemetry gates) |
+| `tests/` | `contract` (the loop once, end to end), `flow-restart` (every flow twice), `draft-approval` (past the gate), `demo-draft-schema` (the validators alone), `records-archive` (the mixin), `workspace-render` (model output rendered as text), `inbox-render` (the same claim about the boxes that edit it), `inbox-decide` (one submission, one batch, one replay key), `board-render` (the board's columns, in the record type's order), `workspace-actor` (the session as an actor), `notify` (who a gate is told to, and the link), `admin-budget` (a member refused, an admin's value written and audited), `admin-budget-render` (the form's markup), `compose-envs` (the env contract), `instrumentation` (both processes' telemetry gates), `llm-mode` (the mode the boot records: fixtures with no key, live with one) |
 | `tests/e2e/` | `pnpm test:e2e` only, against a served app and a real browser: `harness.ts` (the server, the browser, mailpit, sign-in), `exit-bar` (Phase 1's bar and the workspace), `demo-loop` (Phase 2's: the loop, two approvals with one edit, the send, pause and resume) |
 | `tests/e2e/prod-*.e2e.ts` | `pnpm test:prod` only, against the built image and `docker-compose.prod.yml`: `prod-stack.ts` (the database and its roles, the app generated out of this template, `deploy()`, the teardown), `prod-compose` (`migrate` exited 0, `/api/status` 401 then 200, the commit it reports, the worker's launch, an idle worker stopped in under 5 s) and `prod-redeploy` (a run waiting at the gate across a redeploy that inserted a step: attempt 2 under the new commit, the new step's row once, one send) |
 | `app/` | The two catch-all routes, `/auth/*`, and the two API mounts. Almost nothing per-app |
 | `app/(admin)/admin/[[...path]]/` | The admin: `page.tsx` renders what `adminRouter().route()` resolved, and a budget period's row carries the one write — `budget.tsx` is the form, `budget-form.ts` the submission turned into one `setBudget` call, `budget-actions.ts` the server action |
 | `app/(workspace)/w/[[...path]]/` | The workspace: `page.tsx` renders what `app.workspace.route()` resolved, `views.tsx` is the screens, `board.tsx` the read-only pipeline board, `actions.ts` the label and the archive |
 | `…/inbox.tsx`, `inbox-actions.ts` | The approval inbox and the one batch decision it posts. `decide-form.ts` is that form turned into a single `decide()` call — ids, edits, the replay key — and `decision-key.tsx` is the key itself, minted in the browser once per mount |
-| `worker.ts` / `migrate.ts` | The worker — which also drives `app.schedules` and carries `src/notify.ts`'s notifier — and the one-shot migrator |
+| `worker.ts` / `migrate.ts` | The worker — which also drives `app.schedules`, carries `src/notify.ts`'s notifier and reports the LLM mode — and the one-shot migrator |
 | `instrumentation.ts` | The web's telemetry: Langfuse's span processor when all three `LANGFUSE_*` are set, and `@sentry/nextjs` when `SENTRY_DSN` is — errors only, no traces, no PII, no request bodies. `onRequestError` here is what reports a server error; there is no `withSentryConfig`, so nothing is uploaded to or instrumented for Sentry at build time |
 | `src/sentry.ts`, `src/boot-sentry.ts` | The worker's half of the same, on the same terms: initialised second in `worker.ts`, after `.env` and before everything it reports on. Langfuse's half over there is `startWorker()`'s |
 
@@ -127,5 +127,7 @@ something real to hold and so the shape of every registration is visible rather 
 
 With no provider key set the model's answers come from `fixtures/llm/` and with `SMTP_URL` unset
 the channel serializes the mail instead of sending it, so it all runs on a laptop and in CI for
-nothing. `.claude/skills/replace-demo/` is the guided way to swap it for this app's own domain,
-and it names every file to touch.
+nothing. `/api/status` says which of the two a deployed app is on — `llm.mode`, written by the
+worker at boot — and `hf doctor` warns when it is `fixtures`.
+`.claude/skills/replace-demo/` is the guided way to swap it for this app's own domain, and it
+names every file to touch.
