@@ -1,0 +1,17 @@
+# Overlay for `tests/e2e/prod-stack.ts`, never for a deploy.
+#
+# `docker-compose.prod.yml` publishes nothing: a host port is one per box, so publishing 3000
+# there is what stopped a second app from starting beside the first. The suites are on the
+# outside of the stack — they `fetch` the web from the test process — so they, and only they,
+# publish it, on the loopback and on the free port `prod-stack.ts` picked and wrote into `.env`
+# before the build. Picked by the suite rather than left to `docker compose port` to report,
+# because `APP_URL` is better-auth's origin and has to be in the container's environment before
+# it starts.
+#
+# It is an overlay rather than a line in `docker-compose.prod.yml` so that the file under test
+# stays exactly the file that deploys.
+
+services:
+  web:
+    ports:
+      - "127.0.0.1:${HF_E2E_WEB_PORT}:3000"

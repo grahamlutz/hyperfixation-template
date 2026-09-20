@@ -48,8 +48,10 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-    ports:
-      - "3000:3000"
+    # Never `ports:`. A published host port is one per box, so the second app deployed beside
+    # this one cannot start — and the proxy reaches the container over the Docker network.
+    expose:
+      - "3000"
     mem_limit: 512m
     environment:
       HF_PROCESS: web
