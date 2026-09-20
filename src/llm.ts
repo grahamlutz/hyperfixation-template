@@ -1,5 +1,6 @@
 import path from "node:path";
-import { createLlm, createProviders } from "@hyperfixation/ai";
+import { createLlm, createProviders, reportProvidersMode } from "@hyperfixation/ai";
+import type { Pool } from "pg";
 
 /**
  * The app's one `llm.run`. A flow names a model string and a prompt file; nothing in a flow
@@ -28,3 +29,19 @@ export const llm = createLlm({
   }),
   promptsDir: path.resolve(process.cwd(), "prompts"),
 });
+
+/**
+ * Records which of the two the registry above ended up being, where `/api/status` reads it as
+ * `llm.mode`. Only `worker.ts` calls it: the registry that serves a run is the worker's, and the
+ * web — which imports this module too, for routing — never makes the call it would be reporting on.
+ *
+ * A write that fails leaves the previous mode standing, which is a stale status line and a
+ * `hf doctor` warning. That is not worth a worker refusing to serve, so this swallows.
+ */
+export async function reportLlmMode(pool: Pool): Promise<void> {
+  try {
+    await reportProvidersMode(pool);
+  } catch (error) {
+    console.error("hf-worker: could not record the LLM mode", error);
+  }
+}
