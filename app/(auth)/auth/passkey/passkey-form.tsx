@@ -3,6 +3,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { authClient } from "@/auth-client";
 import { promoteSession } from "./actions";
+import { EnrolAlert, type Failure } from "./enrol-alert";
+import { enrolFailure } from "./enrol-error";
 
 /**
  * The WebAuthn registration ceremony, then the promotion.
@@ -15,22 +17,22 @@ import { promoteSession } from "./actions";
 export function PasskeyForm() {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<Failure | null>(null);
 
   async function enrol() {
     setBusy(true);
-    setError(null);
+    setFailure(null);
     const result = await authClient.passkey.addPasskey({ name: "This device" });
     if (result?.error) {
       setBusy(false);
-      setError("That authenticator was not enrolled. Try again.");
+      setFailure(enrolFailure(result.error));
       return;
     }
 
     const promoted = await promoteSession();
     setBusy(false);
     if (!promoted) {
-      setError("The passkey was enrolled but this session was not upgraded. Sign in with it.");
+      setFailure("not-promoted");
       return;
     }
     router.push("/w");
@@ -42,11 +44,7 @@ export function PasskeyForm() {
       <button type="button" onClick={enrol} disabled={busy} style={BUTTON}>
         {busy ? "Waiting for your authenticator…" : "Add a passkey"}
       </button>
-      {error === null ? null : (
-        <p role="alert" style={{ color: "#b00020" }}>
-          {error}
-        </p>
-      )}
+      <EnrolAlert failure={failure} />
     </>
   );
 }
