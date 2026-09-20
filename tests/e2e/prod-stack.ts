@@ -60,6 +60,8 @@ export interface ProdStack {
   readToken: string;
   /** The application role, from the host. Not the connection any container uses. */
   pool: Pool;
+  /** The same role as a connection string, for a `DBOSClient` that enqueues into this stack. */
+  applicationUrl: string;
   /** `docker compose` against this stack's project and files, from the generated app. */
   compose(args: readonly string[]): Promise<string>;
   /** Rebuilds under `sourceCommit` and brings all three services up; waits for `web`. */
@@ -137,6 +139,10 @@ export async function startProdStack(options: ProdStackOptions = {}): Promise<Pr
     pool.on("error", () => undefined);
 
     const dir = appDir;
+    // `docker compose down --rmi local` only removes an image compose named itself, and every
+    // deploy here tags one — so a redeploy would leave the old commit's image on the disk.
+    const imageName = `hf-prod-${suffix}`;
+    const deployedTags: string[] = [];
     const compose = async (args: readonly string[]): Promise<string> => {
       const { stdout } = await exec("docker", ["compose", "-p", project, ...COMPOSE_FILES, ...args], {
         cwd: dir,
@@ -154,10 +160,12 @@ export async function startProdStack(options: ProdStackOptions = {}): Promise<Pr
       sourceCommit: "",
       readToken: "",
       pool,
+      applicationUrl,
       compose,
       deploy: async (sourceCommit: string) => {
+        deployedTags.push(`${imageName}:${sourceCommit}`);
         await writeEnvFile(dir, {
-          image: `hf-prod-${suffix}`,
+          image: imageName,
           sourceCommit,
           baseUrl,
           containerApplicationUrl: containerUrl(applicationUrl),
@@ -175,6 +183,13 @@ export async function startProdStack(options: ProdStackOptions = {}): Promise<Pr
         const failures: unknown[] = [];
         for (const step of [
           () => compose(["down", "-v", "--remove-orphans", "--rmi", "local", "-t", "10"]),
+          // Tolerant: a tag is recorded before its build, so a deploy that failed mid-build
+          // leaves a name there is no image for, which is not a teardown failure.
+          async () => {
+            for (const tag of deployedTags) {
+              await exec("docker", ["image", "rm", "-f", tag]).catch(() => undefined);
+            }
+          },
           () => pool?.end() ?? Promise.resolve(),
           dropDatabase,
           () => rm(parent, { recursive: true, force: true }),
@@ -235,9 +250,11 @@ function templateRoot(): string {
  * two `hf bootstrap` reads. Typed as a total record on purpose: a var added to `REQUIRED_ENV`
  * and not here fails `tsc`, in the same spirit as `compose-envs.test.ts`.
  *
- * The Sentry, Langfuse and provider values are empty because every one of them is all-or-nothing
- * — an empty `SENTRY_DSN` is no Sentry at all, and `src/llm.ts` serves `fixtures/llm/` with no
- * provider key — which is what makes this stack cost nothing to bring up.
+ * The Sentry, Langfuse, SMTP and provider values are empty because every one of them is
+ * all-or-nothing — an empty `SENTRY_DSN` is no Sentry at all, `src/llm.ts` serves `fixtures/llm/`
+ * with no provider key, and an empty `SMTP_URL` is nodemailer's `jsonTransport` in both the
+ * notifier and the email channel — which is what makes this stack cost nothing to bring up and
+ * lets `prod-redeploy` assert a send with no mail server on the runner.
  */
 async function writeEnvFile(
   dir: string,
@@ -256,7 +273,7 @@ async function writeEnvFile(
     MIGRATOR_DATABASE_URL: values.containerMigratorUrl,
     APP_URL: values.baseUrl,
     BETTER_AUTH_SECRET: randomBytes(32).toString("base64url"),
-    SMTP_URL: "smtp://host.docker.internal:1025",
+    SMTP_URL: "",
     EMAIL_FROM: "prod-compose@example.com",
     SENTRY_DSN: "",
     LANGFUSE_BASE_URL: "",
