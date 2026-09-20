@@ -56,7 +56,7 @@ describe("the admin's budget form", () => {
     const outcome = await post(ADMIN, "250.50");
 
     expect(outcome).toEqual({ period: PERIOD });
-    expect(await budgetOf(PERIOD)).toEqual({ budget: "250.5000", spent: "12.5000" });
+    expect(await budgetOf(PERIOD)).toEqual({ budget: 250.5, spent: 12.5 });
 
     const { rows } = await pool.query<{ actor_id: string; target_id: string; meta: unknown }>(
       "SELECT actor_id, target_id, meta FROM hf_audit WHERE action = $1",
@@ -71,7 +71,7 @@ describe("the admin's budget form", () => {
   it("refuses a member, and writes nothing", async () => {
     await expect(post(MEMBER, "250.50")).rejects.toBeInstanceOf(AccessRefused);
 
-    expect(await budgetOf(PERIOD)).toEqual({ budget: "100.0000", spent: "12.5000" });
+    expect(await budgetOf(PERIOD)).toEqual({ budget: 100, spent: 12.5 });
     expect(await auditCount()).toBe(0);
   });
 
@@ -81,7 +81,7 @@ describe("the admin's budget form", () => {
 
       expect(outcome.error).toContain("finite, non-negative");
     }
-    expect(await budgetOf(PERIOD)).toEqual({ budget: "100.0000", spent: "12.5000" });
+    expect(await budgetOf(PERIOD)).toEqual({ budget: 100, spent: 12.5 });
     expect(await auditCount()).toBe(0);
   });
 
@@ -97,7 +97,7 @@ describe("the admin's budget form", () => {
     const outcome = await post(ADMIN, "0");
 
     expect(outcome.error).toBeUndefined();
-    expect(await budgetOf(PERIOD)).toEqual({ budget: "0.0000", spent: "12.5000" });
+    expect(await budgetOf(PERIOD)).toEqual({ budget: 0, spent: 12.5 });
   });
 
   function post(session: AuthSession, budgetUsd: string, period = PERIOD) {
@@ -111,13 +111,17 @@ describe("the admin's budget form", () => {
     return setBudgetFromForm({ setBudget }, formData);
   }
 
-  async function budgetOf(period: string): Promise<{ budget: string; spent: string }> {
+  /**
+   * As numbers, not as the text Postgres prints: `spent_usd`'s scale is the ledger's and core
+   * widens it, so a pinned decimal count here would fail on a column this app never chose.
+   */
+  async function budgetOf(period: string): Promise<{ budget: number; spent: number }> {
     const { rows } = await pool.query<{ budget: string; spent: string }>(
       "SELECT budget_usd::text AS budget, spent_usd::text AS spent FROM hf_budget_period " +
         "WHERE period = $1",
       [period],
     );
-    return rows[0]!;
+    return { budget: Number(rows[0]!.budget), spent: Number(rows[0]!.spent) };
   }
 
   async function auditCount(): Promise<number> {

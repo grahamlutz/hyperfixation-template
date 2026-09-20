@@ -11,7 +11,10 @@
  */
 export interface BudgetFormProps {
   period: string;
-  /** As stored — `numeric(12,4)` as text, not a float this page rounded on the way through. */
+  /**
+   * As stored, at the column's own scale — text, not a float this page rounded on the way
+   * through. `spent_usd` carries the ledger's scale, so a sub-cent call is visible here.
+   */
   budgetUsd: string;
   spentUsd: string;
   /** The period the next gate will read. An edit to any other one changes nothing today. */

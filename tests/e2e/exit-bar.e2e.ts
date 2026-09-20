@@ -41,6 +41,11 @@ const BUDGET_PERIOD = "1999-01";
 
 let harness: Harness;
 
+/** The line the form prints, with `1.25` spent at any scale the ledger's column has. */
+function spentOf(budget: string): RegExp {
+  return new RegExp(`${BUDGET_PERIOD} — spent 1\\.2500(00)? of ${budget.replace(".", "\\.")}`);
+}
+
 async function budgetOf(period: string): Promise<string | undefined> {
   const { rows } = await harness.pool.query<{ budget: string }>(
     "SELECT budget_usd::text AS budget FROM hf_budget_period WHERE period = $1",
@@ -127,7 +132,9 @@ describe("the Phase 1 exit bar", () => {
       );
       try {
         await page.goto(`${harness.baseUrl}/admin/budget-periods/${BUDGET_PERIOD}`);
-        await page.getByText(`${BUDGET_PERIOD} — spent 1.2500 of 7.0000`).waitFor();
+        // `spent_usd` prints at whatever scale core's ledger stores it, so match the value
+        // rather than a decimal count; `budget_usd` is this form's own and stays at four.
+        await page.getByText(spentOf("7.0000")).waitFor();
 
         await page.getByLabel("Budget (USD)").fill("-1");
         await page.getByRole("button", { name: "Set budget" }).click();
@@ -136,7 +143,7 @@ describe("the Phase 1 exit bar", () => {
 
         await page.getByLabel("Budget (USD)").fill("42.5");
         await page.getByRole("button", { name: "Set budget" }).click();
-        await page.getByText(`${BUDGET_PERIOD} — spent 1.2500 of 42.5000`).waitFor();
+        await page.getByText(spentOf("42.5000")).waitFor();
         expect(await budgetOf(BUDGET_PERIOD)).toBe("42.5000");
       } finally {
         await harness.pool.query("DELETE FROM hf_budget_period WHERE period = $1", [BUDGET_PERIOD]);
