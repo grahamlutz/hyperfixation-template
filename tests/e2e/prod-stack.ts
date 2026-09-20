@@ -47,6 +47,13 @@ const BOOTSTRAP_EMAIL = "admin@example.com";
 const BUILD_TIMEOUT_MS = 900_000;
 const WEB_READY_TIMEOUT_MS = 180_000;
 
+/**
+ * How much of a failed child's output the thrown error carries. Enough for the whole of a
+ * failing `RUN` step and what led to it; the CI log is the only thing a future occurrence
+ * leaves behind, so nothing here may depend on re-running the build to find out what happened.
+ */
+const LOG_TAIL_LINES = 200;
+
 export interface ProdStack {
   /** The generated app the image is built from. */
   appDir: string;
@@ -143,14 +150,12 @@ export async function startProdStack(options: ProdStackOptions = {}): Promise<Pr
     // deploy here tags one — so a redeploy would leave the old commit's image on the disk.
     const imageName = `hf-prod-${suffix}`;
     const deployedTags: string[] = [];
-    const compose = async (args: readonly string[]): Promise<string> => {
-      const { stdout } = await exec("docker", ["compose", "-p", project, ...COMPOSE_FILES, ...args], {
+    const compose = (args: readonly string[]): Promise<string> =>
+      run("docker", ["compose", "-p", project, ...COMPOSE_FILES, ...args], {
         cwd: dir,
         timeout: BUILD_TIMEOUT_MS,
         maxBuffer: 64 * 1024 * 1024,
       });
-      return stdout;
-    };
 
     const stack: ProdStack = {
       appDir: dir,
@@ -171,7 +176,14 @@ export async function startProdStack(options: ProdStackOptions = {}): Promise<Pr
           containerApplicationUrl: containerUrl(applicationUrl),
           containerMigratorUrl: containerUrl(migratorUrl),
         });
-        await compose(["up", "-d", "--build", "--force-recreate"]);
+        // Built as its own command rather than through `up --build`, which takes no
+        // `--progress`: compose's default printed nothing but the failing step's *name* when
+        // this build failed in CI once, and a build whose output is gone is a build nobody can
+        // diagnose. `plain` writes every step's own output, which `run` then carries.
+        await compose(["build", "--progress", "plain"]);
+        await compose(["up", "-d", "--force-recreate"]).catch(async (error: unknown) => {
+          throw new Error(`${messageOf(error)}\n\n${await allLogs(compose)}`, { cause: error });
+        });
         await waitForWeb(stack);
         stack.sourceCommit = sourceCommit;
       },
@@ -227,6 +239,53 @@ export async function startProdStack(options: ProdStackOptions = {}): Promise<Pr
     await rm(parent, { recursive: true, force: true });
     throw error;
   }
+}
+
+/**
+ * `execFile`, with everything the child said on the way out. Node's own failure message carries
+ * `stderr` and nothing else, so a compose command that fails after printing to `stdout` — `ps`,
+ * `logs`, anything reporting through the structured stream — throws an error naming only the
+ * command. Both streams are tailed here instead, because CI's log is the whole of the evidence.
+ */
+async function run(
+  file: string,
+  args: readonly string[],
+  options: { cwd?: string; timeout?: number; maxBuffer?: number } = {},
+): Promise<string> {
+  try {
+    const { stdout } = await exec(file, [...args], options);
+    return stdout;
+  } catch (error) {
+    const failed = error as { code?: number | string; stdout?: string; stderr?: string };
+    throw new Error(
+      [
+        `Command failed (exit ${String(failed.code ?? "?")}): ${file} ${args.join(" ")}`,
+        section("stdout", failed.stdout),
+        section("stderr", failed.stderr),
+      ].join("\n"),
+      { cause: error },
+    );
+  }
+}
+
+function section(name: string, text: string | undefined): string {
+  if (text === undefined || text.trim() === "") return `--- ${name}: empty ---`;
+  const lines = text.split("\n");
+  const dropped = Math.max(0, lines.length - LOG_TAIL_LINES);
+  const head = dropped > 0 ? `--- ${name} (last ${LOG_TAIL_LINES} of ${lines.length} lines) ---` : `--- ${name} ---`;
+  return `${head}\n${lines.slice(dropped).join("\n")}`;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Every service's container output, for a failure that left the containers behind. */
+async function allLogs(compose: (args: readonly string[]) => Promise<string>): Promise<string> {
+  const logs = await compose(["logs", "--no-color", "--tail", String(LOG_TAIL_LINES)]).catch(
+    (error: unknown) => `docker compose logs failed: ${messageOf(error)}`,
+  );
+  return section("docker compose logs", logs);
 }
 
 /**
@@ -355,8 +414,10 @@ async function waitForWeb(stack: ProdStack): Promise<void> {
       // Not listening yet.
     }
     if (Date.now() > deadline) {
+      // Every service, not just `web`: a web that never listens is usually a database or a
+      // migration the other two containers are the record of.
       throw new Error(
-        `web never answered at ${stack.baseUrl}:\n${await stack.logsOf("web")}`,
+        `web never answered at ${stack.baseUrl}:\n${await allLogs(stack.compose)}`,
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 1_000));
