@@ -16,6 +16,11 @@ updates:
       - dependency-name: "@hyperfixation/*"
       # Pinned to one exact version across every package so `DBOS` is one object in a process.
       - dependency-name: "@dbos-inc/dbos-sdk"
+      # `typescript` is held at ~5.9 by typescript-eslint's peer range (`<6.1.0`) — see the
+      # `//typescript` note in package.json. A major here does not fail the lint, it stops it
+      # starting, so the PR is unmergeable by construction. Minor and patch still come through.
+      - dependency-name: "typescript"
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -26,3 +31,9 @@ updates:
     directory: "/"
     schedule:
       interval: monthly
+    ignore:
+      # The image's base is `node:22-alpine` and `engines.node` is `>=22`; a Node major is a
+      # decision about the runtime the app is tested on, not a dependency bump. Patch and minor
+      # rebases of the 22 line — which is where the security fixes are — still come through.
+      - dependency-name: "node"
+        update-types: [version-update:semver-major]

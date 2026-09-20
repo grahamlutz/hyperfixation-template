@@ -73,6 +73,12 @@ jobs:
   #
   # Independent of `check` on purpose: the two share no artifact, and this job's install is the
   # prod suite's, not the app's.
+  #
+  # `hf new` copies this workflow verbatim, so this job runs in every generated app too. The
+  # builds and the two version assertions are the app's own and run there; the `test:prod`
+  # suites generate an app out of a template checkout and cannot, so they are gated on the
+  # marker `hf new` deletes. Per step, not on the job: the name `image` is a required check in
+  # this repo, and a job that skipped itself would report as one that passed.
   image:
     runs-on: ubuntu-latest
     services:
@@ -122,19 +128,24 @@ jobs:
       # its database and roles on the service container above, and brings all three services up
       # off one build — so this needs a toolchain, which the two steps above did not.
       - uses: pnpm/action-setup@v6
+        if: hashFiles('.hyperfixation-template') != ''
         with:
           version: 12.4.2
       - uses: actions/setup-node@v7
+        if: hashFiles('.hyperfixation-template') != ''
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        if: hashFiles('.hyperfixation-template') != ''
       - name: The prod stack comes up
+        if: hashFiles('.hyperfixation-template') != ''
         run: pnpm test:prod tests/e2e/prod-compose.e2e.ts
       # D4, in this job rather than one of its own: it wants the same Docker, the same cluster
       # and the same install, and its two builds reuse every layer the steps above cached. It is
       # a step of its own only so each chunk's wall clock is readable separately.
       - name: A redeploy across a step change
+        if: hashFiles('.hyperfixation-template') != ''
         run: pnpm test:prod tests/e2e/prod-redeploy.e2e.ts
 
   # The deploy shape is checked by `compose-envs.test.ts` above, which reads the file; this
