@@ -18,6 +18,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:e2e": "vitest run -c vitest.e2e.config.ts",
+    "test:prod": "vitest run -c vitest.prod.config.ts",
     "db:generate": "drizzle-kit generate",
     "gen": "turbo gen"
   },
@@ -43,6 +44,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@hyperfixation/cli": "^0.1.0",
     "@hyperfixation/eslint-config": "^0.1.0",
     "@hyperfixation/testing": "^0.1.0",
     "@turbo/gen": "^2.10.13",

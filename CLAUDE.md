@@ -50,6 +50,7 @@ restart just as well as four that ran the loop.
 | `fixtures/sources/` | What the demo source streams, in place of a real API |
 | `tests/` | `contract` (the loop once, end to end), `flow-restart` (every flow twice), `draft-approval` (past the gate), `demo-draft-schema` (the validators alone), `records-archive` (the mixin), `workspace-render` (model output rendered as text), `inbox-render` (the same claim about the boxes that edit it), `inbox-decide` (one submission, one batch, one replay key), `board-render` (the board's columns, in the record type's order), `workspace-actor` (the session as an actor), `notify` (who a gate is told to, and the link), `admin-budget` (a member refused, an admin's value written and audited), `admin-budget-render` (the form's markup), `compose-envs` (the env contract), `instrumentation` (both processes' telemetry gates) |
 | `tests/e2e/` | `pnpm test:e2e` only, against a served app and a real browser: `harness.ts` (the server, the browser, mailpit, sign-in), `exit-bar` (Phase 1's bar and the workspace), `demo-loop` (Phase 2's: the loop, two approvals with one edit, the send, pause and resume) |
+| `tests/e2e/prod-*.e2e.ts` | `pnpm test:prod` only, against the built image and `docker-compose.prod.yml`: `prod-stack.ts` (the database and its roles, the app generated out of this template, `deploy()`, the teardown) and `prod-compose` (`migrate` exited 0, `/api/status` 401 then 200, the commit it reports, the worker's launch, an idle worker stopped in under 5 s) |
 | `app/` | The two catch-all routes, `/auth/*`, and the two API mounts. Almost nothing per-app |
 | `app/(admin)/admin/[[...path]]/` | The admin: `page.tsx` renders what `adminRouter().route()` resolved, and a budget period's row carries the one write — `budget.tsx` is the form, `budget-form.ts` the submission turned into one `setBudget` call, `budget-actions.ts` the server action |
 | `app/(workspace)/w/[[...path]]/` | The workspace: `page.tsx` renders what `app.workspace.route()` resolved, `views.tsx` is the screens, `board.tsx` the read-only pipeline board, `actions.ts` the label and the archive |
@@ -69,6 +70,18 @@ pnpm typecheck && pnpm lint && pnpm test
 Before claiming anything works: `pnpm test` against a real Postgres. The suite spawns a real
 worker process, because `startWorker()` cannot be tested any other way — DBOS refuses a second
 launch in one process, and the advisory lock is released by process death and nothing else.
+
+```
+pnpm test:prod            # the deployed stack: builds the image, runs docker-compose.prod.yml
+```
+
+Only in a template checkout, and only where `docker info` succeeds and `docker buildx` exists —
+the Dockerfile's `RUN --mount=type=cache` needs BuildKit, and a Docker CLI without the buildx
+plugin falls back to the classic builder and fails the build. It generates the app it deploys
+(`docker-compose.prod.yml` in this checkout would deploy `__APP_NAME__`, which `roleNames()`
+refuses), provisions a database of its own on `HF_TEST_DATABASE_URL`'s cluster — the dev cluster
+on `:5434` by default — and drops everything afterwards. The suite skips itself with a warning
+when Docker is not there, so it is CI's `image` job that has to stay green.
 
 ## What not to do
 
