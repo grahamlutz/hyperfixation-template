@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -19,7 +20,8 @@ import { REQUIRED_ENV, type RequiredEnv } from "../../src/env";
  * same stack up, patches a flow, and deploys it again under a new commit — so `deploy()` is a
  * method rather than something `start` does once.
  *
- * Two things here are not the deployed shape, and both are recorded rather than hidden:
+ * Three things here are not the deployed shape, and all three are recorded rather than hidden:
+ * `docker-compose.e2e-ports.yml` publishes `web` on a host port a deploy must not publish,
  * `prod-compose.hostdb.yml` overlays the one route to a Postgres outside compose, and the app
  * is generated into a temporary directory because `docker-compose.prod.yml` in *this* checkout
  * would deploy an app called `__APP_NAME__` — a name `roleNames()` refuses, so `migrate` would
@@ -30,14 +32,18 @@ import { REQUIRED_ENV, type RequiredEnv } from "../../src/env";
 const exec = promisify(execFile);
 
 /**
- * The deploy file, plus the `host.docker.internal` overlay on the one platform that needs it.
- * See `prod-compose.hostdb.yml`: on a Mac the name resolves already and the overlay would
- * replace it with a gateway inside the VM.
+ * The deploy file, the overlay that publishes `web` for the suite to reach — the deploy file
+ * publishes no host port, see `docker-compose.e2e-ports.yml` — and the `host.docker.internal`
+ * overlay on the one platform that needs it. See `prod-compose.hostdb.yml`: on a Mac the name
+ * resolves already and the overlay would replace it with a gateway inside the VM.
  */
-const COMPOSE_FILES: readonly string[] =
-  process.platform === "linux"
-    ? ["-f", "docker-compose.prod.yml", "-f", "tests/e2e/prod-compose.hostdb.yml"]
-    : ["-f", "docker-compose.prod.yml"];
+const COMPOSE_FILES: readonly string[] = [
+  "-f",
+  "docker-compose.prod.yml",
+  "-f",
+  "tests/e2e/docker-compose.e2e-ports.yml",
+  ...(process.platform === "linux" ? ["-f", "tests/e2e/prod-compose.hostdb.yml"] : []),
+];
 
 /** `hf up`'s own seed value; `bootstrapApp` has no default and refuses a non-positive one. */
 const BOOTSTRAP_BUDGET_USD = "10";
@@ -83,7 +89,10 @@ export interface ProdStack {
 export interface ProdStackOptions {
   /** Defaults to a random 40-hex string; `startWorker()` refuses anything under 7 characters. */
   sourceCommit?: string;
-  /** The published port, which is also the origin better-auth and the suite address. */
+  /**
+   * The host port the ports overlay publishes `web` on, which is also better-auth's origin and
+   * the suite's address. Defaults to one the kernel picked and nothing is listening on.
+   */
   port?: number;
 }
 
@@ -104,7 +113,7 @@ export async function startProdStack(options: ProdStackOptions = {}): Promise<Pr
   const suffix = randomBytes(4).toString("hex");
   const appName = `prod_${suffix}`;
   const databaseName = `hf_${appName}`;
-  const port = options.port ?? 3000;
+  const port = options.port ?? (await freePort());
   const baseUrl = `http://localhost:${port}`;
   const project = `hf-prod-${suffix}`;
 
@@ -173,6 +182,7 @@ export async function startProdStack(options: ProdStackOptions = {}): Promise<Pr
           image: imageName,
           sourceCommit,
           baseUrl,
+          port,
           containerApplicationUrl: containerUrl(applicationUrl),
           containerMigratorUrl: containerUrl(migratorUrl),
         });
@@ -321,6 +331,7 @@ async function writeEnvFile(
     image: string;
     sourceCommit: string;
     baseUrl: string;
+    port: number;
     containerApplicationUrl: string;
     containerMigratorUrl: string;
   },
@@ -346,6 +357,8 @@ async function writeEnvFile(
     ...REQUIRED_ENV.map((name) => `${name}=${env[name]}`),
     `DOCKER_IMAGE=${values.image}`,
     `SOURCE_COMMIT=${values.sourceCommit}`,
+    // `docker-compose.e2e-ports.yml`'s only interpolation; the deploy file has no `ports:`.
+    `HF_E2E_WEB_PORT=${values.port}`,
     `HF_BOOTSTRAP_EMAIL=${BOOTSTRAP_EMAIL}`,
     `HF_BOOTSTRAP_BUDGET_USD=${BOOTSTRAP_BUDGET_USD}`,
   ];
@@ -421,6 +434,29 @@ async function waitForWeb(stack: ProdStack): Promise<void> {
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+}
+
+/**
+ * A port nothing is listening on, from the kernel: bind `0`, read it back, release it. It is
+ * free at the moment it is read and not held until compose binds it, which is the same window
+ * every ephemeral-port harness lives with — and much narrower than the one a fixed 3000 had,
+ * where anything already on the port, including a second copy of this suite, collided for sure.
+ */
+async function freePort(): Promise<number> {
+  const server = createServer();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    const address = server.address();
+    if (address === null || typeof address === "string") {
+      throw new Error(`no port from a listening server: ${String(address)}`);
+    }
+    return address.port;
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
 
