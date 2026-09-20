@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { AdminField, AdminResource } from "@hyperfixation/admin";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -6,6 +7,9 @@ import { adminRouter, currentBudgetPeriod, getRow, listRows, type AdminRow } fro
 import { BudgetForm } from "./budget";
 import { setAppBudget } from "./budget-actions";
 import { BUDGET_ERROR_PARAM, offersSetBudget } from "./budget-form";
+import { DraftRunForm } from "./draft-run";
+import { startDraftRun } from "./draft-run-actions";
+import { DRAFT_RUN_ERROR_PARAM, DRAFT_RUN_STARTED_PARAM } from "./draft-run-form";
 
 /**
  * The admin, behind one catch-all route. `@hyperfixation/admin` generates every resource from
@@ -38,6 +42,7 @@ export default async function AdminPage({
   if (route === undefined) notFound();
 
   if (route.kind === "index") {
+    const search = await searchParams;
     return (
       <Shell>
         <h1>__APP_NAME__ admin</h1>
@@ -48,6 +53,12 @@ export default async function AdminPage({
             </li>
           ))}
         </ul>
+        <DraftRunForm
+          keySeed={randomUUID()}
+          startedRunId={textOf(search, DRAFT_RUN_STARTED_PARAM)}
+          error={textOf(search, DRAFT_RUN_ERROR_PARAM)}
+          action={startDraftRun}
+        />
       </Shell>
     );
   }
@@ -112,7 +123,7 @@ export default async function AdminPage({
           budgetUsd={fieldValue(route.resource, row, "budgetUsd")}
           spentUsd={fieldValue(route.resource, row, "spentUsd")}
           currentPeriod={route.id === (await currentBudgetPeriod())}
-          error={errorOf(await searchParams)}
+          error={textOf(await searchParams, BUDGET_ERROR_PARAM)}
           action={setAppBudget}
         />
       ) : null}
@@ -120,9 +131,12 @@ export default async function AdminPage({
   );
 }
 
-/** A refusal the action redirected back with. Bounded, and rendered as text by React. */
-function errorOf(search: Record<string, string | string[] | undefined> | undefined) {
-  const value = search?.[BUDGET_ERROR_PARAM];
+/** What an action redirected back with. Bounded, and rendered as text by React. */
+function textOf(
+  search: Record<string, string | string[] | undefined> | undefined,
+  param: string,
+): string | undefined {
+  const value = search?.[param];
   const text = Array.isArray(value) ? value[0] : value;
   return text === undefined || text === "" ? undefined : text.slice(0, 200);
 }
