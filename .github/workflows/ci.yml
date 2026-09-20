@@ -67,13 +67,33 @@ jobs:
           ANTHROPIC_API_KEY: ""
           OPENAI_API_KEY: ""
 
-  # The image, built for real, and asked the one question only the image can answer: does it
-  # know which commit it is? `pnpm build` is the `check` job's business — the Dockerfile runs it
-  # too, but nothing here re-asserts it.
+  # The image, built for real, and asked the questions only the image can answer: does it know
+  # which commit it is, and does the stack it is three copies of actually come up? `pnpm build`
+  # is the `check` job's business — the Dockerfile runs it too, but nothing here re-asserts it.
   #
-  # Independent of `check` on purpose: it needs no database and no pnpm install of its own.
+  # Independent of `check` on purpose: the two share no artifact, and this job's install is the
+  # prod suite's, not the app's.
   image:
     runs-on: ubuntu-latest
+    services:
+      # The cluster `pnpm test:prod` provisions the deployed app's database on. Its published
+      # port is on the runner, which the compose containers reach as `host.docker.internal`
+      # through the overlay in `tests/e2e/prod-compose.hostdb.yml`.
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      HF_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v7
       - name: Build with the commit as SOURCE_COMMIT
@@ -98,6 +118,19 @@ jobs:
             }
             console.log(`HF_BUILD_SHA=${sha}`);
           '
+      # D3: the stack itself. `pnpm test:prod` generates an app out of this template, creates
+      # its database and roles on the service container above, and brings all three services up
+      # off one build — so this needs a toolchain, which the two steps above did not.
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 12.4.2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: The prod stack comes up
+        run: pnpm test:prod
 
   # The deploy shape is checked by `compose-envs.test.ts` above, which reads the file; this
   # asserts Docker itself can resolve it — interpolation, the `x-app` anchor, the build args.

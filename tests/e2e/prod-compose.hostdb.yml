@@ -1,0 +1,22 @@
+# Overlay for `tests/e2e/prod-stack.ts` on Linux, never for a deploy.
+#
+# The deployed stack talks to a managed Postgres by DNS name. The prod-compose suite talks to a
+# cluster on the machine running the test — the dev cluster on a laptop, the workflow's
+# `services: postgres` on `ubuntu-latest`, whose published port is on the runner itself — so
+# every URL it hands the containers is `host.docker.internal`.
+#
+# On a Mac that name already resolves to the host; on Linux's Docker Engine it resolves to
+# nothing at all, and `host-gateway` is the documented way to give it the bridge's host address.
+# `prod-stack.ts` adds this file only there, because adding it on a Mac would *replace* a
+# working name with a gateway inside the VM.
+#
+# It is an overlay rather than three lines in `docker-compose.prod.yml` so that the file under
+# test stays exactly the file that deploys.
+
+services:
+  migrate:
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  web:
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  worker:
+    extra_hosts: ["host.docker.internal:host-gateway"]
