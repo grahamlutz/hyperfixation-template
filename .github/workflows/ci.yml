@@ -130,7 +130,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: The prod stack comes up
-        run: pnpm test:prod
+        run: pnpm test:prod tests/e2e/prod-compose.e2e.ts
+      # D4, in this job rather than one of its own: it wants the same Docker, the same cluster
+      # and the same install, and its two builds reuse every layer the steps above cached. It is
+      # a step of its own only so each chunk's wall clock is readable separately.
+      - name: A redeploy across a step change
+        run: pnpm test:prod tests/e2e/prod-redeploy.e2e.ts
 
   # The deploy shape is checked by `compose-envs.test.ts` above, which reads the file; this
   # asserts Docker itself can resolve it — interpolation, the `x-app` anchor, the build args.
