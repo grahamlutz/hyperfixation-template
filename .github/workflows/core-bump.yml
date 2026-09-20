@@ -22,6 +22,27 @@ permissions:
 jobs:
   bump:
     runs-on: ubuntu-latest
+    # The same cluster `ci.yml`'s `check` job gives the suite below: without it `pnpm test` has
+    # no database to create its per-test ones on, fails for that reason alone under
+    # `continue-on-error`, and says nothing about the bump — which is the one thing the step is
+    # here to say.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      HF_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      HF_BUILD_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
