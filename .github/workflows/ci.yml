@@ -67,6 +67,38 @@ jobs:
           ANTHROPIC_API_KEY: ""
           OPENAI_API_KEY: ""
 
+  # The image, built for real, and asked the one question only the image can answer: does it
+  # know which commit it is? `pnpm build` is the `check` job's business — the Dockerfile runs it
+  # too, but nothing here re-asserts it.
+  #
+  # Independent of `check` on purpose: it needs no database and no pnpm install of its own.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build with the commit as SOURCE_COMMIT
+        run: docker build --build-arg SOURCE_COMMIT="$GITHUB_SHA" -t hf-image .
+      # The ENTRYPOINT script `exec "$@"`s, so this reaches `node` through the same path the
+      # deployed container's command does, with the same environment and no database.
+      - name: HF_BUILD_SHA is the build arg
+        run: docker run --rm hf-image node -e 'process.exit(process.env.HF_BUILD_SHA===process.argv[1]?0:1)' "$GITHUB_SHA"
+      # No build arg. The builder resolves the sha from the checkout's own `.git` — which is why
+      # `.dockerignore` does not list it — and the entrypoint reads the file the builder wrote.
+      # Cheap: the Dockerfile puts the arg last in both stages, so this reuses the install, the
+      # `next build` and every copy of the build above.
+      - name: Build without SOURCE_COMMIT
+        run: docker build -t hf-image-fallback .
+      - name: The entrypoint falls back to the checkout's HEAD
+        run: |
+          docker run --rm hf-image-fallback node -e '
+            const sha = process.env.HF_BUILD_SHA ?? "";
+            if (sha.length < 7) {
+              console.error(`HF_BUILD_SHA is ${JSON.stringify(sha)}`);
+              process.exit(1);
+            }
+            console.log(`HF_BUILD_SHA=${sha}`);
+          '
+
   # The deploy shape is checked by `compose-envs.test.ts` above, which reads the file; this
   # asserts Docker itself can resolve it — interpolation, the `x-app` anchor, the build args.
   compose:
