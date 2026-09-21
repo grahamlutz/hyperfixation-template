@@ -1,6 +1,6 @@
 import { createAdminRouter, type AdminResource, type AdminRouter } from "@hyperfixation/admin";
 import { requireSession } from "./auth";
-import { pool } from "./web";
+import { pool } from "./pool";
 
 /**
  * The admin router, bound to this app's pool and this app's guard.

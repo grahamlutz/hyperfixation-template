@@ -4,7 +4,18 @@ import path from "node:path";
 
 export interface RunningServer {
   baseUrl: string;
+  /**
+   * Everything the child has written to either stream since it started. `layers.e2e.ts` is the
+   * caller: the failure it watches for — a module-level registration running twice in one
+   * process — is a line in the server's log and nothing a response body ever shows.
+   */
+  output(): string;
   stop(): Promise<void>;
+}
+
+export interface ServerOptions {
+  /** Serves the standalone build whatever `HF_E2E_BUILD` says; see below. */
+  built?: boolean;
 }
 
 /** Set to serve the deploy artifact instead of `pnpm dev`; see below. */
@@ -23,10 +34,10 @@ export const BUILD_ENV = "HF_E2E_BUILD";
  * unusable against any other — so serving the app anywhere but its own `APP_URL` would fail the
  * enrolment this suite exists to prove.
  */
-export async function startServer(): Promise<RunningServer> {
+export async function startServer(options: ServerOptions = {}): Promise<RunningServer> {
   const root = process.cwd();
   const appUrl = new URL(process.env.APP_URL ?? "http://localhost:3000");
-  const built = process.env[BUILD_ENV] === "1";
+  const built = options.built ?? process.env[BUILD_ENV] === "1";
 
   if (built) await buildStandalone(root);
 
@@ -41,14 +52,19 @@ export async function startServer(): Promise<RunningServer> {
         env: { ...process.env, HF_PROCESS: "web" },
         stdio: ["ignore", "pipe", "pipe"],
       });
-  child.stdout?.on("data", () => undefined);
-  child.stderr?.on("data", (chunk: Buffer) => process.stderr.write(chunk));
+  const said: string[] = [];
+  child.stdout?.on("data", (chunk: Buffer) => said.push(chunk.toString()));
+  child.stderr?.on("data", (chunk: Buffer) => {
+    said.push(chunk.toString());
+    process.stderr.write(chunk);
+  });
 
   const baseUrl = appUrl.origin;
   await waitForReady(baseUrl, child);
 
   return {
     baseUrl,
+    output: () => said.join(""),
     stop: () =>
       new Promise<void>((resolve) => {
         if (child.exitCode !== null) return resolve();
