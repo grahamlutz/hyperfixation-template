@@ -11,12 +11,26 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
  * Both globals are process-wide and one-shot, which is why this is a file of its own — vitest gives
  * it a fork — why the no-op case runs before the registering one, and why the ordering matters.
  *
+ * The second suite is the other side of the same trade: that `initSentry()` giving the trace global
+ * away has not also given away per-request scope isolation. Same process, same registration, which
+ * is the only state the claim is worth making in.
+ *
  * Nothing leaves the machine: the same fake server is Langfuse's endpoint and Sentry's, so the
  * error half is proven by an envelope arriving rather than by reading the option off the file.
  */
 
 /** OpenTelemetry's own global slot. Read directly so this file needs no `@opentelemetry/api`. */
 const OTEL_GLOBAL = Symbol.for("opentelemetry.js.api.1");
+
+interface OtelGlobal {
+  trace?: GlobalTracerProvider;
+  context?: unknown;
+}
+
+/** Its two slots that matter here, each first-one-wins and each filled by a different SDK. */
+function otelGlobal(): OtelGlobal {
+  return (globalThis as Record<symbol, OtelGlobal | undefined>)[OTEL_GLOBAL] ?? {};
+}
 
 interface Received {
   url: string;
@@ -98,7 +112,9 @@ describe("Sentry beside Langfuse", () => {
     const { registerLangfuse } = await import("@hyperfixation/workflows");
 
     expect(registerLangfuse()).toBeUndefined();
-    expect(globalThis[OTEL_GLOBAL as never]).toBeUndefined();
+    // The `trace` slot, not the whole object: `initSentry()` has already filled `context` with
+    // `SentryContextManager`, which is the second suite's subject and is not a tracer provider.
+    expect(otelGlobal().trace).toBeUndefined();
     expect(otlp()).toEqual([]);
   });
 
@@ -112,11 +128,8 @@ describe("Sentry beside Langfuse", () => {
 
     // Through the global tracer, which is how `llm.run` creates its spans, and with the attributes
     // `LangfuseSpanProcessor`'s default filter keeps.
-    const provider = globalThis[OTEL_GLOBAL as never] as unknown as {
-      trace: GlobalTracerProvider;
-    };
-    provider.trace
-      .getTracer("langfuse-otel-global.test")
+    otelGlobal()
+      .trace!.getTracer("langfuse-otel-global.test")
       .startSpan("chat", {
         attributes: { "gen_ai.operation.name": "chat", "gen_ai.system": "anthropic" },
       })
@@ -133,5 +146,63 @@ describe("Sentry beside Langfuse", () => {
     );
     expect(exported!.publicKey).toBe(KEYS.LANGFUSE_PUBLIC_KEY);
     expect(exported!.body).toContain("gen_ai.operation.name");
+  });
+});
+
+/**
+ * With the trace global Langfuse's and the context global Sentry's — which is what
+ * `installSentryContextManager()` arranges, after every registration above.
+ *
+ * `skipOpenTelemetrySetup` omits `SentryContextManager`, and without it Sentry's async-context
+ * strategy has nowhere to put a forked scope: `getScopesFromContext()` finds none and both calls
+ * below fall through to the process-global default scope and mutate it, so a tag set for one
+ * request rides out on every later request's event. Delete the call in `src/sentry.ts` and both
+ * cases here read `"b"` twice.
+ *
+ * Two tasks, started together and each awaiting a turn of the loop inside its own fork, because
+ * that is the interleaving a leak needs: one `await` on its own proves nothing.
+ */
+describe("a request's scope beside Langfuse's trace global", () => {
+  const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 10));
+
+  it("keeps two concurrent isolation scopes apart", async () => {
+    const Sentry = await import("@sentry/node");
+
+    const seen = await Promise.all(
+      ["a", "b"].map((id) =>
+        Sentry.withIsolationScope(async () => {
+          Sentry.getIsolationScope().setTag("req", id);
+          await tick();
+          return Sentry.getIsolationScope().getScopeData().tags.req;
+        }),
+      ),
+    );
+
+    expect(seen).toEqual(["a", "b"]);
+  });
+
+  it("forks the current scope the same way", async () => {
+    const Sentry = await import("@sentry/node");
+
+    const seen = await Promise.all(
+      ["a", "b"].map((id) =>
+        Sentry.withScope(async () => {
+          Sentry.getCurrentScope().setTag("req", id);
+          await tick();
+          return Sentry.getCurrentScope().getScopeData().tags.req;
+        }),
+      ),
+    );
+
+    expect(seen).toEqual(["a", "b"]);
+  });
+
+  // Outside every fork, these two are the process-global defaults every event not in a request
+  // would carry — which is where the four tags above went before the manager was installed.
+  it("leaves nothing on the default scopes", async () => {
+    const Sentry = await import("@sentry/node");
+
+    expect(Sentry.getIsolationScope().getScopeData().tags).toEqual({});
+    expect(Sentry.getCurrentScope().getScopeData().tags).toEqual({});
   });
 });

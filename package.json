@@ -7,6 +7,7 @@
     "node": ">=22"
   },
   "//typescript": "`typescript` is held at 5.9, not stale: `@hyperfixation/eslint-config` brings typescript-eslint 8, whose peer range is `>=4.8.4 <6.1.0`. Past that, `pnpm lint` does not warn — it refuses to start. Raise it when core raises typescript-eslint, not before.",
+  "//@opentelemetry/api": "A range, not a pin, unlike `@sentry/*` beside it: `registerGlobal` compares the two copies' versions as strings and refuses on any difference, so a second copy is the telemetry globals silently not being shared. `src/otel-context.ts` reads it directly; everything else in the tree gets it through Sentry or `@hyperfixation/workflows`, and the range is what lets all three resolve to one.",
   "//webpack": "Every `next` invocation carries `--webpack`, here and in CI and tests/e2e/server.ts. Turbopack copies `src/flows/*` per page entry while the registry inside `@hyperfixation/workflows` stays one module, so a second page re-registers a flow and the build dies on `DuplicateFlow`. See CLAUDE.md, What not to do.",
   "scripts": {
     "dev": "next dev --webpack",
@@ -31,6 +32,7 @@
     "@hyperfixation/core": "^0.1.8",
     "@hyperfixation/db": "^0.1.8",
     "@hyperfixation/workflows": "^0.1.8",
+    "@opentelemetry/api": "^1.9.1",
     "@sentry/nextjs": "10.75.0",
     "@sentry/node": "10.75.0",
     "better-auth": "1.7.5",
