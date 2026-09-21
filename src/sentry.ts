@@ -23,6 +23,11 @@ export async function initSentry(): Promise<boolean> {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     release: process.env.HF_BUILD_SHA,
+    // Every OpenTelemetry global is first-one-wins, and this runs two imports ahead of
+    // `startWorker()`: without this, Sentry's own provider takes the trace global, Langfuse's
+    // `provider.register()` is refused without a word, and every `gen_ai` span is dropped at the
+    // `tracesSampleRate` below. Costs nothing here — errors need no provider.
+    skipOpenTelemetrySetup: true,
     // The last thing to touch an event. Everything below narrows what is collected; this takes
     // this app's own secrets out of whatever was collected anyway — a crash message quoting a
     // connection string is how `SMTP_URL` reached an issue once.

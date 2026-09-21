@@ -121,7 +121,13 @@ describe("Sentry in the web", () => {
 
     expect(webInit).toHaveBeenCalledTimes(1);
     expect(webInit).toHaveBeenCalledWith(
-      expect.objectContaining({ dsn: DSN, sendDefaultPii: false, tracesSampleRate: 0 }),
+      expect.objectContaining({
+        dsn: DSN,
+        sendDefaultPii: false,
+        tracesSampleRate: 0,
+        // `langfuse-otel-global.test.ts` is what proves this one matters.
+        skipOpenTelemetrySetup: true,
+      }),
     );
   });
 
@@ -206,7 +212,12 @@ describe("Sentry in the worker", () => {
     expect(await (await freshInitSentry())()).toBe(true);
     expect(workerInit).toHaveBeenCalledTimes(1);
     expect(workerInit).toHaveBeenCalledWith(
-      expect.objectContaining({ dsn: DSN, sendDefaultPii: false, tracesSampleRate: 0 }),
+      expect.objectContaining({
+        dsn: DSN,
+        sendDefaultPii: false,
+        tracesSampleRate: 0,
+        skipOpenTelemetrySetup: true,
+      }),
     );
   });
 });

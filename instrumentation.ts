@@ -64,6 +64,11 @@ async function initSentry(): Promise<void> {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     release: process.env.HF_BUILD_SHA,
+    // The trace global belongs to Langfuse, and every OTel global is first-one-wins: `register()`
+    // above awaits this fourteen lines before `registerLangfuse()`, so without this Sentry's own
+    // provider takes it, that registration is refused without a word, and every `gen_ai` span goes
+    // nowhere. Sentry only wanted it to sample traces this app does not collect.
+    skipOpenTelemetrySetup: true,
     // The last thing to touch an event, and the worker sets the same one: everything below
     // narrows what is collected, this takes this app's own secrets out of what was collected
     // anyway — a crash message quoting a connection string is how `SMTP_URL` reached an issue
