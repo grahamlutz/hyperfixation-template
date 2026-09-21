@@ -7,8 +7,10 @@
  * `startWorker()` refuses on that, but the rule is worth stating where someone would break it.
  */
 
-// Static, unlike the two below it: `src/scrub.ts` reads `process.env` and nothing else, so it
-// resolves on either runtime and adds nothing to the edge bundle worth deferring.
+// Static, unlike the two below them: `src/scrub.ts` reads `process.env` and nothing else, and
+// `src/otel-context.ts` is a function whose own two imports are dynamic, so both resolve on either
+// runtime and add nothing to the edge bundle worth deferring.
+import { installSentryContextManager } from "./src/otel-context";
 import { installConsoleScrub, scrubEvent } from "./src/scrub";
 
 /**
@@ -67,7 +69,8 @@ async function initSentry(): Promise<void> {
     // The trace global belongs to Langfuse, and every OTel global is first-one-wins: `register()`
     // above awaits this fourteen lines before `registerLangfuse()`, so without this Sentry's own
     // provider takes it, that registration is refused without a word, and every `gen_ai` span goes
-    // nowhere. Sentry only wanted it to sample traces this app does not collect.
+    // nowhere. Sentry only wanted it to sample traces this app does not collect. What it does cost
+    // is the context manager, which `installSentryContextManager()` below puts back.
     skipOpenTelemetrySetup: true,
     // The last thing to touch an event, and the worker sets the same one: everything below
     // narrows what is collected, this takes this app's own secrets out of what was collected
@@ -84,6 +87,11 @@ async function initSentry(): Promise<void> {
     sendDefaultPii: false,
     integrations: (defaults) => defaults.filter((integration) => !WITHOUT.has(integration.name)),
   });
+
+  // After `init()`, because the strategy it installs is what reads this manager's async storage,
+  // and before `registerLangfuse()` in `register()` above — a request's scopes have to be forking
+  // by the time the first one arrives.
+  await installSentryContextManager();
   sentryInitialised = true;
 }
 

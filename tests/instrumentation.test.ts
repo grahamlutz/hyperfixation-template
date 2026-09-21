@@ -19,7 +19,21 @@ const webInit = vi.fn();
 const workerInit = vi.fn();
 
 vi.mock("@sentry/nextjs", () => ({ init: webInit, captureRequestError: vi.fn() }));
-vi.mock("@sentry/node", () => ({ init: workerInit }));
+/**
+ * `SentryContextManager` too, because both inits reach `installSentryContextManager()`, which asks
+ * `@sentry/node` for it whichever process is initialising. A stub, and `@opentelemetry/api` spied
+ * beside it, rather than the real pair: what they do to the process-wide context global is
+ * `langfuse-otel-global.test.ts`'s subject, and the first case here would settle it for the rest.
+ */
+vi.mock("@sentry/node", () => ({
+  init: workerInit,
+  SentryContextManager: class {
+    enable(): this {
+      return this;
+    }
+  },
+}));
+vi.mock("@opentelemetry/api", () => ({ context: { setGlobalContextManager: () => true } }));
 
 /** Syntactically a DSN and nothing behind it; every assertion here is on the spy. */
 const DSN = "https://public@o0.ingest.sentry.io/0";

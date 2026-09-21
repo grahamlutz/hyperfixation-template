@@ -1,3 +1,4 @@
+import { installSentryContextManager } from "./otel-context";
 import { scrubEvent } from "./scrub";
 
 /**
@@ -26,7 +27,8 @@ export async function initSentry(): Promise<boolean> {
     // Every OpenTelemetry global is first-one-wins, and this runs two imports ahead of
     // `startWorker()`: without this, Sentry's own provider takes the trace global, Langfuse's
     // `provider.register()` is refused without a word, and every `gen_ai` span is dropped at the
-    // `tracesSampleRate` below. Costs nothing here — errors need no provider.
+    // `tracesSampleRate` below. Costs nothing here — errors need no provider. What it does cost is
+    // the context manager, which `installSentryContextManager()` below puts back.
     skipOpenTelemetrySetup: true,
     // The last thing to touch an event. Everything below narrows what is collected; this takes
     // this app's own secrets out of whatever was collected anyway — a crash message quoting a
@@ -45,6 +47,10 @@ export async function initSentry(): Promise<boolean> {
     // compose's grace period should not be waiting on Sentry to answer.
     integrations: (defaults) => defaults.filter((integration) => !WITHOUT.has(integration.name)),
   });
+
+  // After `init()`, because the strategy it installs is what reads this manager's async storage,
+  // and before `startWorker()` two imports below — which is where `registerLangfuse()` runs.
+  await installSentryContextManager();
   return true;
 }
 
