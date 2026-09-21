@@ -2,7 +2,7 @@
 import { upgradeSessionFactor } from "@hyperfixation/auth";
 import { headers } from "next/headers";
 import { auth, requireSession } from "@/auth";
-import { pool } from "@/web";
+import { pool } from "@/pool";
 
 /**
  * Promotes the session that just enrolled a passkey, so enrolling and then being sent back

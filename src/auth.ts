@@ -10,7 +10,7 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { requireEnv } from "./env";
 import { sendVerificationOTP } from "./email";
-import { pool } from "./web";
+import { pool } from "./pool";
 
 /**
  * better-auth, and the guard every route and server action in this app goes through.
@@ -19,9 +19,10 @@ import { pool } from "./web";
  * code goes, the public origin, and the signing secret — plus the host half of the guard, which
  * is `redirect()` and `notFound()` because this app is a Next app. Both are built lazily: a
  * module-level `createAuth()` would read the environment during `next build`, which imports
- * every route module with no environment at all. `src/web.ts` defers its pool for the same
+ * every route module with no environment at all. `src/pool.ts` defers its pool for the same
  * reason and this shares that pool, so better-auth and the control plane stay inside the one
- * five-connection web budget.
+ * five-connection web budget — from there rather than from `src/web.ts`, because the guard is on
+ * every route and `src/web.ts` is the app and its flows.
  */
 let instance: HyperfixationAuth | undefined;
 

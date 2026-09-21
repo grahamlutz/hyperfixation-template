@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { loadEnv } from "../../src/load-env";
-import { startServer, type RunningServer } from "./server";
+import { startServer, type RunningServer, type ServerOptions } from "./server";
 
 /**
  * What both e2e files are: one browser, one served app, one pool, one mailpit, and the sign-in
@@ -22,6 +22,15 @@ export interface Harness {
   mailpit: string;
   pool: Pool;
   browser: Browser;
+  /** Every server process this harness has started, in order. See `layers.e2e.ts`. */
+  output(): string;
+  /**
+   * A second server process on the same build and the same port, the sessions in the database
+   * and so the browser's cookies outliving the first. `layers.e2e.ts` is the caller: which of
+   * Next's module layers instantiates the app's graph *first* is a property of the process, so
+   * asking the other order of it means asking a process that has answered nothing yet.
+   */
+  restart(): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -29,7 +38,7 @@ export interface Harness {
  * Brings the app up for a suite. It needs the dev compose up and the app migrated and
  * bootstrapped — `hf up` once — and it starts the server itself. See `pnpm test:e2e`.
  */
-export async function startHarness(): Promise<Harness> {
+export async function startHarness(options: ServerOptions = {}): Promise<Harness> {
   loadEnv(process.cwd());
   const mailpit = mailpitUrl(required("SMTP_URL"));
   const pool = new Pool({ connectionString: required("DATABASE_URL"), max: 2 });
@@ -37,7 +46,7 @@ export async function startHarness(): Promise<Harness> {
   let server: RunningServer | undefined;
   let browser: Browser | undefined;
   try {
-    server = await startServer();
+    server = await startServer(options);
     browser = await chromium.launch();
   } catch (error) {
     await browser?.close();
@@ -46,13 +55,21 @@ export async function startHarness(): Promise<Harness> {
     throw error;
   }
 
-  const running = server;
+  let running = server;
   const launched = browser;
+  /** What the processes before the current one said, which stopping one would otherwise lose. */
+  const said: string[] = [];
   return {
     baseUrl: running.baseUrl,
     mailpit,
     pool,
     browser: launched,
+    output: () => [...said, running.output()].join(""),
+    restart: async () => {
+      said.push(running.output());
+      await running.stop();
+      running = await startServer(options);
+    },
     stop: async () => {
       await launched.close();
       await running.stop();

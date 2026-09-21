@@ -1,28 +1,22 @@
 import { getClient } from "@hyperfixation/workflows";
-import { Pool } from "pg";
 import { requireEnv } from "./env";
 import { app, recordTables } from "./hyperfixation";
+import { pool } from "./pool";
 
 /**
- * The web's half of `app.attach()`: an ordinary pool under the application role, and the
- * `DBOSClient` singleton `getClient()` owns. The web never calls `DBOS.launch()` — it enqueues
- * through that client and nothing else.
+ * The web's half of `app.attach()`: the `DBOSClient` singleton `getClient()` owns, over
+ * `src/pool.ts`'s pool. The web never calls `DBOS.launch()` — it enqueues through that client
+ * and nothing else.
+ *
+ * Importing this module is importing the app, and so every `defineFlow` in it: the pool lives
+ * next door precisely so that a route wanting only a connection does not. See `src/pool.ts`.
  *
  * Attached lazily, on the first request that needs a control-plane operation rather than at
- * import: `next build` imports every route module to collect its metadata, and a pool opened
- * there would connect at build time, when there may be no database at all.
+ * import: `next build` imports every route module to collect its metadata, and an attach there
+ * would connect at build time, when there may be no database at all.
  */
 
-/** Matches the plan's connection budget: web Drizzle/better-auth pool 5, web `DBOSClient` 2. */
-const WEB_POOL_SIZE = 5;
-
 let attached: Promise<void> | undefined;
-let webPool: Pool | undefined;
-
-export function pool(): Pool {
-  webPool ??= new Pool({ connectionString: requireEnv("DATABASE_URL"), max: WEB_POOL_SIZE });
-  return webPool;
-}
 
 export async function attachedApp(): Promise<typeof app> {
   attached ??= (async () => {
